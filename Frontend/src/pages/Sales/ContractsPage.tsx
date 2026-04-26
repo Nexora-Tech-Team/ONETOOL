@@ -169,18 +169,36 @@ export default function ContractsPage() {
             </select>
           </FormField>
           <FormField label="Project">
-            <select className="input" value={form.project_id} onChange={e => setForm({ ...form, project_id: e.target.value })}>
+            <select
+              className="input"
+              value={form.project_id}
+              onChange={e => {
+                const pid = e.target.value
+                const proj = projects.find((p: any) => String(p.id) === pid)
+                setForm((f: any) => ({
+                  ...f,
+                  project_id: pid,
+                  ...(proj ? {
+                    client_id:     String(proj.client_id || f.client_id),
+                    contract_date: proj.start_date?.split('T')[0] || f.contract_date,
+                    valid_until:   proj.deadline?.split('T')[0]   || f.valid_until,
+                    amount:        proj.price ?? f.amount,
+                    currency:      proj.currency || f.currency,
+                  } : {}),
+                }))
+              }}
+            >
               <option value="">No project</option>
-              {projects.map(p => <option key={p.id} value={p.id}>{p.title}</option>)}
+              {projects.map((p: any) => <option key={p.id} value={p.id}>{p.title}</option>)}
             </select>
           </FormField>
-          <FormField label="Contract Date">
+          <FormField label="Contract Date" hint={form.project_id ? 'Auto-filled from project start date' : undefined}>
             <input className="input" type="date" value={form.contract_date} onChange={e => setForm({ ...form, contract_date: e.target.value })} />
           </FormField>
-          <FormField label="Valid Until">
+          <FormField label="Valid Until" hint={form.project_id ? 'Auto-filled from project deadline' : undefined}>
             <input className="input" type="date" value={form.valid_until} onChange={e => setForm({ ...form, valid_until: e.target.value })} />
           </FormField>
-          <FormField label="Amount">
+          <FormField label="Amount" hint={form.project_id ? 'Auto-filled from project price' : undefined}>
             <PriceInput value={form.amount} onChange={v => setForm({ ...form, amount: v })} />
           </FormField>
           <FormField label="Currency">

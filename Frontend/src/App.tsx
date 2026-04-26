@@ -9,6 +9,7 @@ import ProtectedRoute from '@/components/common/ProtectedRoute'
 
 import LoginPage from '@/pages/Auth/LoginPage'
 import ForgotPasswordPage from '@/pages/Auth/ForgotPasswordPage'
+import ResetPasswordPage from '@/pages/Auth/ResetPasswordPage'
 import DashboardPage from '@/pages/Dashboard/DashboardPage'
 import EventsPage from '@/pages/Events/EventsPage'
 import ClientsPage from '@/pages/Clients/ClientsPage'
@@ -36,6 +37,7 @@ import ReportsPage from '@/pages/Reports/ReportsPage'
 import TodoPage from '@/pages/Todo/TodoPage'
 import UsersPage from '@/pages/Settings/UsersPage'
 import AuditLogPage from '@/pages/Settings/AuditLogPage'
+import RolesPage from '@/pages/Settings/RolesPage'
 
 export default function App() {
   return (
@@ -44,6 +46,7 @@ export default function App() {
         <Routes>
           <Route path="/login" element={<LoginPage />} />
           <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+          <Route path="/reset-password" element={<ResetPasswordPage />} />
           <Route path="/" element={<ProtectedRoute><Layout /></ProtectedRoute>}>
             <Route index element={<Navigate to="/dashboard" replace />} />
             <Route path="dashboard" element={<DashboardPage />} />
@@ -72,6 +75,7 @@ export default function App() {
             <Route path="reports" element={<ReportsPage />} />
             <Route path="todo" element={<TodoPage />} />
             <Route path="settings/users" element={<UsersPage />} />
+            <Route path="settings/roles" element={<RolesPage />} />
             <Route path="settings/audit-log" element={<AuditLogPage />} />
           </Route>
           <Route path="*" element={<Navigate to="/dashboard" replace />} />

@@ -24,7 +24,7 @@ export default function LoginPage() {
     e.preventDefault()
     if (remember) localStorage.setItem('remembered_email', email)
     else          localStorage.removeItem('remembered_email')
-    dispatch(login({ email, password, remember }))
+    dispatch(login({ email: email.trim(), password, remember }))
   }
 
   return (
@@ -65,13 +65,13 @@ export default function LoginPage() {
             {/* Email */}
             <div className="mb-3">
               <label className="block text-sm text-gray-700 mb-1">
-                Email or Username
+                Email
               </label>
               <input
-                type="text"
+                type="email"
                 value={email}
                 onChange={e => setEmail(e.target.value)}
-                placeholder="Enter your email or username"
+                placeholder="Enter your email"
                 required
                 autoComplete="off"
                 style={{ backgroundColor: '#f0f5fb' }}

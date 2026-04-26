@@ -45,6 +45,7 @@ func (s *Server) setupRoutes() {
 		auth.POST("/login", authH.Login)
 		auth.POST("/register", authH.Register)
 		auth.POST("/forgot-password", authH.ForgotPassword)
+		auth.POST("/reset-password", authH.ResetPassword)
 	}
 
 	// ─── Protected routes ────────────────────────────
@@ -221,12 +222,13 @@ func (s *Server) setupRoutes() {
 		}
 
 		// Files
-		fileH := handlers.NewFileHandler(s.db)
+		fileH := handlers.NewFileHandler(s.db, s.cfg.UploadDir)
 		files := protected.Group("/files")
 		{
 			files.GET("", fileH.List)
 			files.POST("/upload", fileH.Upload)
 			files.POST("/folder", fileH.CreateFolder)
+			files.GET("/:id/download", fileH.Download)
 			files.DELETE("/:id", fileH.Delete)
 			files.PATCH("/:id/favorite", fileH.ToggleFavorite)
 		}
@@ -250,6 +252,18 @@ func (s *Server) setupRoutes() {
 			reports.GET("/leads-summary", reportH.LeadsSummary)
 			reports.GET("/expenses-summary", reportH.ExpensesSummary)
 			reports.GET("/export", reportH.ExportCSV)
+		}
+
+		// App Roles (admin only for CUD, all for list)
+		roleH := handlers.NewAppRoleHandler(s.db)
+		roles := protected.Group("/roles")
+		{
+			roles.GET("", roleH.List)
+			roles.POST("", middleware.AdminRequired(), roleH.Create)
+			roles.GET("/:id", middleware.AdminRequired(), roleH.Get)
+			roles.PUT("/:id", middleware.AdminRequired(), roleH.Update)
+			roles.DELETE("/:id", middleware.AdminRequired(), roleH.Delete)
+			roles.PUT("/:id/permissions", middleware.AdminRequired(), roleH.SetPermissions)
 		}
 
 		// Audit Logs (admin only)

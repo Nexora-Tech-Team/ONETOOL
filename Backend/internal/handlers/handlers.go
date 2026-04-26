@@ -4,7 +4,10 @@ import (
 	"encoding/csv"
 	"fmt"
 	"html/template"
+	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -793,8 +796,16 @@ func NewPaymentHandler(db *gorm.DB) *PaymentHandler { return &PaymentHandler{db:
 func (h *PaymentHandler) List(c *gin.Context) {
 	var payments []models.Payment
 	var total int64
-	h.db.Model(&models.Payment{}).Count(&total)
-	h.db.Preload("Invoice").Order("payment_date desc").Find(&payments)
+	q := c.Query("q")
+	query := h.db.Preload("Invoice.Client").Order("payment_date desc")
+	if q != "" {
+		query = query.Joins("JOIN invoices ON invoices.id = payments.invoice_id").
+			Joins("LEFT JOIN clients ON clients.id = invoices.client_id").
+			Where("invoices.invoice_number ILIKE ? OR clients.name ILIKE ? OR payments.payment_method ILIKE ? OR payments.note ILIKE ?",
+				"%"+q+"%", "%"+q+"%", "%"+q+"%", "%"+q+"%")
+	}
+	query.Find(&payments)
+	total = int64(len(payments))
 	c.JSON(http.StatusOK, gin.H{"data": payments, "total": total})
 }
 
@@ -1208,9 +1219,15 @@ func (h *TeamHandler) CreateAnnouncement(c *gin.Context) {
 
 // ─── FILE ────────────────────────────────────────────
 
-type FileHandler struct{ db *gorm.DB }
+type FileHandler struct {
+	db        *gorm.DB
+	uploadDir string
+}
 
-func NewFileHandler(db *gorm.DB) *FileHandler { return &FileHandler{db: db} }
+func NewFileHandler(db *gorm.DB, uploadDir string) *FileHandler {
+	os.MkdirAll(uploadDir, 0755)
+	return &FileHandler{db: db, uploadDir: uploadDir}
+}
 
 func (h *FileHandler) List(c *gin.Context) {
 	userID := getUserID(c)
@@ -1232,15 +1249,58 @@ func (h *FileHandler) Upload(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "No file provided"}); return
 	}
 	defer file.Close()
-	// TODO: implement actual file storage (S3, local, etc.)
+
+	// Simpan ke subdirektori YYYY/MM
+	subDir := time.Now().Format("2006/01")
+	dir := filepath.Join(h.uploadDir, subDir)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create upload dir"}); return
+	}
+
+	// Nama file unik: timestamp + nama asli
+	uniqueName := fmt.Sprintf("%d_%s", time.Now().UnixNano(), filepath.Base(header.Filename))
+	relPath := filepath.Join(subDir, uniqueName)
+	fullPath := filepath.Join(h.uploadDir, relPath)
+
+	dst, err := os.Create(fullPath)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save file"}); return
+	}
+	defer dst.Close()
+	if _, err = io.Copy(dst, file); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to write file"}); return
+	}
+
 	f := models.File{
 		Name:     header.Filename,
+		Path:     relPath,
+		URL:      "/api/v1/files/download/" + fmt.Sprintf("%d", 0), // diupdate setelah create
 		Size:     header.Size,
 		MimeType: header.Header.Get("Content-Type"),
 		OwnerID:  getUserID(c),
 	}
 	h.db.Create(&f)
+	// Update URL dengan ID yang sudah ada
+	h.db.Model(&f).Update("url", fmt.Sprintf("/api/v1/files/%d/download", f.ID))
 	c.JSON(http.StatusCreated, f)
+}
+
+func (h *FileHandler) Download(c *gin.Context) {
+	id, _ := getID(c)
+	userID := getUserID(c)
+	var f models.File
+	if err := h.db.First(&f, id).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "File not found"}); return
+	}
+	if f.OwnerID != userID {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"}); return
+	}
+	if f.IsFolder || f.Path == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Not a downloadable file"}); return
+	}
+	fullPath := filepath.Join(h.uploadDir, f.Path)
+	c.Header("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, f.Name))
+	c.File(fullPath)
 }
 
 func (h *FileHandler) CreateFolder(c *gin.Context) {
@@ -1385,6 +1445,89 @@ func (h *LabelHandler) Delete(c *gin.Context) {
 	id, _ := getID(c)
 	h.db.Delete(&models.Label{}, id)
 	c.JSON(http.StatusOK, gin.H{"message": "Deleted"})
+}
+
+// ─── APP ROLE ────────────────────────────────────────
+
+type AppRoleHandler struct{ db *gorm.DB }
+
+func NewAppRoleHandler(db *gorm.DB) *AppRoleHandler { return &AppRoleHandler{db: db} }
+
+func (h *AppRoleHandler) List(c *gin.Context) {
+	var roles []models.AppRole
+	h.db.Preload("Permissions").Find(&roles)
+	c.JSON(http.StatusOK, gin.H{"data": roles})
+}
+
+func (h *AppRoleHandler) Create(c *gin.Context) {
+	var role models.AppRole
+	if err := c.ShouldBindJSON(&role); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()}); return
+	}
+	if err := h.db.Create(&role).Error; err != nil {
+		c.JSON(http.StatusConflict, gin.H{"error": "Role name already exists"}); return
+	}
+	c.JSON(http.StatusCreated, role)
+}
+
+func (h *AppRoleHandler) Get(c *gin.Context) {
+	id, _ := getID(c)
+	var role models.AppRole
+	if err := h.db.Preload("Permissions").First(&role, id).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Role not found"}); return
+	}
+	c.JSON(http.StatusOK, role)
+}
+
+func (h *AppRoleHandler) Update(c *gin.Context) {
+	id, _ := getID(c)
+	var role models.AppRole
+	if err := h.db.First(&role, id).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Role not found"}); return
+	}
+	var req struct {
+		Name        string `json:"name"`
+		Description string `json:"description"`
+	}
+	c.ShouldBindJSON(&req)
+	if req.Name != "" { role.Name = req.Name }
+	role.Description = req.Description
+	h.db.Save(&role)
+	c.JSON(http.StatusOK, role)
+}
+
+func (h *AppRoleHandler) Delete(c *gin.Context) {
+	id, _ := getID(c)
+	var count int64
+	h.db.Model(&models.User{}).Where("app_role_id = ?", id).Count(&count)
+	if count > 0 {
+		c.JSON(http.StatusConflict, gin.H{"error": fmt.Sprintf("Role masih digunakan oleh %d user", count)}); return
+	}
+	h.db.Delete(&models.AppRole{}, id)
+	c.JSON(http.StatusOK, gin.H{"message": "Deleted"})
+}
+
+func (h *AppRoleHandler) SetPermissions(c *gin.Context) {
+	id, _ := getID(c)
+	var role models.AppRole
+	if err := h.db.First(&role, id).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Role not found"}); return
+	}
+	var permissions []models.RolePermission
+	if err := c.ShouldBindJSON(&permissions); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()}); return
+	}
+	// Replace all permissions for this role
+	h.db.Where("app_role_id = ?", id).Delete(&models.RolePermission{})
+	for i := range permissions {
+		permissions[i].AppRoleID = id
+		permissions[i].ID = 0
+	}
+	if len(permissions) > 0 {
+		h.db.Create(&permissions)
+	}
+	h.db.Preload("Permissions").First(&role, id)
+	c.JSON(http.StatusOK, role)
 }
 
 // ─── AUDIT LOG ───────────────────────────────────────

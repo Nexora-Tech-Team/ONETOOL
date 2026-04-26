@@ -232,6 +232,17 @@ export const auditService = {
   list: (params?: any) => api.get('/audit-logs', { params }),
 }
 
+// ─── App Roles ───────────────────────────────────────
+export const roleService = {
+  list: () => api.get('/roles'),
+  get: (id: number) => api.get(`/roles/${id}`),
+  create: (data: { name: string; description?: string }) => api.post('/roles', data),
+  update: (id: number, data: { name?: string; description?: string }) => api.put(`/roles/${id}`, data),
+  delete: (id: number) => api.delete(`/roles/${id}`),
+  setPermissions: (id: number, permissions: { menu: string; can_read: boolean; can_edit: boolean }[]) =>
+    api.put(`/roles/${id}/permissions`, permissions),
+}
+
 // ─── Invoice PDF ─────────────────────────────────────
 export const invoicePDFService = {
   openPDF: (id: number) => {

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { teamService } from '@/services/api'
+import { teamService, roleService } from '@/services/api'
 import api from '@/services/api'
 import { toast } from 'react-toastify'
 import { Plus, KeyRound, UserX, UserCheck } from 'lucide-react'
@@ -11,8 +11,10 @@ import { useSelector } from 'react-redux'
 import { isValidEmail } from '@/utils/format'
 import { RootState } from '@/store'
 
+interface AppRole { id: number; name: string }
+
 const EMPTY_FORM = {
-  name: '', email: '', password: '', job_title: '', phone: '', role: 'member',
+  name: '', email: '', password: '', job_title: '', phone: '', role: 'member', app_role_id: '' as string | number,
 }
 
 export default function UsersPage() {
@@ -22,6 +24,7 @@ export default function UsersPage() {
   const [page, setPage] = useState(1)
   const [search, setSearch] = useState('')
   const [loading, setLoading] = useState(true)
+  const [appRoles, setAppRoles] = useState<AppRole[]>([])
 
   const [showAddModal, setShowAddModal] = useState(false)
   const [showEditModal, setShowEditModal] = useState(false)
@@ -46,6 +49,9 @@ export default function UsersPage() {
   }
 
   useEffect(() => { load() }, [page, search])
+  useEffect(() => {
+    roleService.list().then(r => setAppRoles(r.data.data || [])).catch(() => {})
+  }, [])
 
   const set = (key: string, val: any) => setForm((f: any) => ({ ...f, [key]: val }))
   const setE = (key: string, val: any) => setEditForm((f: any) => ({ ...f, [key]: val }))
@@ -57,7 +63,10 @@ export default function UsersPage() {
     if (form.password.length < 6) { toast.error('Password min 6 characters'); return }
     setSaving(true)
     try {
-      await api.post('/auth/register', form)
+      const res = await api.post('/auth/register', { name: form.name, email: form.email, password: form.password, job_title: form.job_title, phone: form.phone, role: form.role })
+      if (form.app_role_id && form.role === 'member') {
+        await teamService.updateMember(res.data.user.id, { app_role_id: Number(form.app_role_id) })
+      }
       toast.success(`User ${form.name} created!`)
       setShowAddModal(false)
       setForm(EMPTY_FORM)
@@ -104,7 +113,7 @@ export default function UsersPage() {
 
   const openEdit = (u: any) => {
     setEditUser(u)
-    setEditForm({ name: u.name, email: u.email, job_title: u.job_title || '', phone: u.phone || '', role: u.role })
+    setEditForm({ name: u.name, email: u.email, job_title: u.job_title || '', phone: u.phone || '', role: u.role, app_role_id: u.app_role_id ?? '' })
     setShowEditModal(true)
   }
 
@@ -145,15 +154,15 @@ export default function UsersPage() {
                   <th>Name</th>
                   <th>Email</th>
                   <th>Job Title</th>
-                  <th>Phone</th>
                   <th>Role</th>
+                  <th>App Role</th>
                   <th>Status</th>
                   <th>Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {users.length === 0
-                  ? <tr><td colSpan={7}><EmptyState /></td></tr>
+                  ? <tr><td colSpan={8}><EmptyState /></td></tr>
                   : users.map(u => (
                     <tr key={u.id} className={!u.is_active ? 'opacity-50' : ''}>
                       <td>
@@ -169,8 +178,10 @@ export default function UsersPage() {
                       </td>
                       <td className="text-gray-600">{u.email}</td>
                       <td className="text-gray-500">{u.job_title || '-'}</td>
-                      <td className="text-gray-500">{u.phone || '-'}</td>
                       <td>{roleBadge(u.role)}</td>
+                      <td className="text-gray-500 text-xs">
+                        {u.app_role_id ? (appRoles.find(r => r.id === u.app_role_id)?.name ?? `#${u.app_role_id}`) : '-'}
+                      </td>
                       <td>
                         <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${u.is_active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
                           {u.is_active ? 'Active' : 'Inactive'}
@@ -246,6 +257,14 @@ export default function UsersPage() {
               <option value="admin">Admin</option>
             </select>
           </Row>
+          {form.role === 'member' && (
+            <Row label="App Role">
+              <select className="input" value={form.app_role_id} onChange={e => set('app_role_id', e.target.value)}>
+                <option value="">— No specific role (full access) —</option>
+                {appRoles.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
+              </select>
+            </Row>
+          )}
         </div>
       </Modal>
 
@@ -280,6 +299,14 @@ export default function UsersPage() {
               <option value="admin">Admin</option>
             </select>
           </Row>
+          {(editForm.role || 'member') === 'member' && (
+            <Row label="App Role">
+              <select className="input" value={editForm.app_role_id ?? ''} onChange={e => setE('app_role_id', e.target.value ? Number(e.target.value) : null)}>
+                <option value="">— No specific role (full access) —</option>
+                {appRoles.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
+              </select>
+            </Row>
+          )}
         </div>
       </Modal>
 

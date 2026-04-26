@@ -75,17 +75,37 @@ type Base struct {
 // ─── USER ───────────────────────────────────────────
 type User struct {
 	Base
-	Name        string  `gorm:"not null" json:"name"`
-	Email       string  `gorm:"uniqueIndex;not null" json:"email"`
-	Password    string  `gorm:"not null" json:"-"`
-	JobTitle    string  `json:"job_title"`
-	Phone       string  `json:"phone"`
-	Avatar      string  `json:"avatar"`
-	Role        string  `gorm:"default:member" json:"role"` // admin, member
-	IsActive    bool    `gorm:"default:true" json:"is_active"`
-	ClockedIn   bool    `gorm:"default:false" json:"clocked_in"`
-	TimeCards   []TimeCard `json:"time_cards,omitempty"`
-	Leaves      []Leave    `json:"leaves,omitempty"`
+	Name             string     `gorm:"not null" json:"name"`
+	Email            string     `gorm:"uniqueIndex;not null" json:"email"`
+	Password         string     `gorm:"not null" json:"-"`
+	JobTitle         string     `json:"job_title"`
+	Phone            string     `json:"phone"`
+	Avatar           string     `json:"avatar"`
+	Role             string     `gorm:"default:member" json:"role"` // admin, member (system role)
+	IsActive         bool       `gorm:"default:true" json:"is_active"`
+	ClockedIn        bool       `gorm:"default:false" json:"clocked_in"`
+	AppRoleID        *uint      `json:"app_role_id"`
+	AppRole          *AppRole   `gorm:"foreignKey:AppRoleID" json:"app_role,omitempty"`
+	ResetToken       string     `gorm:"index" json:"-"`
+	ResetTokenExpiry *time.Time `json:"-"`
+	TimeCards        []TimeCard `json:"time_cards,omitempty"`
+	Leaves           []Leave    `json:"leaves,omitempty"`
+}
+
+// ─── APP ROLE (Dynamic RBAC) ─────────────────────────
+type AppRole struct {
+	Base
+	Name        string           `json:"name" gorm:"uniqueIndex;not null"`
+	Description string           `json:"description"`
+	Permissions []RolePermission `json:"permissions,omitempty" gorm:"foreignKey:AppRoleID;constraint:OnDelete:CASCADE"`
+}
+
+type RolePermission struct {
+	ID        uint   `json:"id" gorm:"primaryKey;autoIncrement"`
+	AppRoleID uint   `json:"app_role_id"`
+	Menu      string `json:"menu"`
+	CanRead   bool   `json:"can_read" gorm:"default:true"`
+	CanEdit   bool   `json:"can_edit" gorm:"default:false"`
 }
 
 // ─── CLIENT ─────────────────────────────────────────

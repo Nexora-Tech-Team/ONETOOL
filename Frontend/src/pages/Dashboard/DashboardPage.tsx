@@ -7,6 +7,7 @@ import { Link } from 'react-router-dom'
 import { Clock, CheckSquare, Calendar, CreditCard, FolderKanban, Users } from 'lucide-react'
 import { PieChart, Pie, Cell, Tooltip } from 'recharts'
 import { Loading, StatusBadge, ProgressBar } from '@/components/common'
+import { toast } from 'react-toastify'
 import { formatIDR } from '@/utils/format'
 import clsx from 'clsx'
 
@@ -21,10 +22,10 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true)
   const [clockLoading, setClockLoading] = useState(false)
 
-  const loadData = () => {
+  const loadData = (uid?: number) => {
     Promise.all([
       dashboardService.getStats(),
-      taskService.list({ assigned_to_id: user?.id, limit: 5 }),
+      taskService.list({ assigned_to_id: uid, limit: 5 }),
       projectService.list({ status: 'open', limit: 3 }),
     ]).then(([s, t, p]) => {
       setStats(s.data)
@@ -33,19 +34,23 @@ export default function DashboardPage() {
     }).finally(() => setLoading(false))
   }
 
-  useEffect(() => { loadData() }, [])
+  useEffect(() => { loadData(user?.id) }, [user?.id])
 
   const handleClock = async () => {
     setClockLoading(true)
     try {
       if (user?.clocked_in) {
         await teamService.clockOut()
+        toast.success('Clocked out successfully!')
       } else {
         await teamService.clockIn()
+        toast.success('Clocked in successfully!')
       }
       await dispatch(fetchMe())
       const s = await dashboardService.getStats()
       setStats(s.data)
+    } catch (err: any) {
+      toast.error(err.response?.data?.error || 'Clock action failed')
     } finally {
       setClockLoading(false)
     }
@@ -82,7 +87,15 @@ export default function DashboardPage() {
       {/* Stats Row */}
       <div className="grid grid-cols-4 gap-3">
         {/* Clock In/Out */}
-        <div className="rounded-lg p-4 flex flex-col gap-1.5" style={{ background: 'linear-gradient(135deg,#ec4899,#f43f5e)', color: 'white' }}>
+        <div
+          className="rounded-lg p-4 flex flex-col gap-1.5 transition-all duration-500"
+          style={{
+            background: user?.clocked_in
+              ? 'linear-gradient(135deg,#10b981,#059669)'
+              : 'linear-gradient(135deg,#ec4899,#f43f5e)',
+            color: 'white',
+          }}
+        >
           <div className="flex items-center gap-2 text-xs opacity-90">
             <Clock size={14} /> Clock In/Out
           </div>

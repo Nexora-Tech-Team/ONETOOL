@@ -2,7 +2,7 @@ import { Outlet, NavLink, useNavigate } from 'react-router-dom'
 import { useDispatch, useSelector } from 'react-redux'
 import { useState } from 'react'
 import { RootState } from '@/store'
-import { logout } from '@/store/slices/authSlice'
+import { logout, canRead } from '@/store/slices/authSlice'
 import { toggleSidebar } from '@/store/slices/uiSlice'
 import logoUrl from '../../../logo/logo_ref.png'
 import {
@@ -14,14 +14,14 @@ import {
 import clsx from 'clsx'
 
 const navItems = [
-  { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
-  { to: '/events', icon: Calendar, label: 'Events' },
-  { to: '/clients', icon: Users, label: 'Clients' },
-  { to: '/projects', icon: FolderKanban, label: 'Projects' },
-  { to: '/tasks', icon: CheckSquare, label: 'Tasks' },
-  { to: '/leads', icon: TrendingUp, label: 'Leads' },
+  { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard', menu: 'dashboard' },
+  { to: '/events', icon: Calendar, label: 'Events', menu: 'events' },
+  { to: '/clients', icon: Users, label: 'Clients', menu: 'clients' },
+  { to: '/projects', icon: FolderKanban, label: 'Projects', menu: 'projects' },
+  { to: '/tasks', icon: CheckSquare, label: 'Tasks', menu: 'tasks' },
+  { to: '/leads', icon: TrendingUp, label: 'Leads', menu: 'leads' },
   {
-    label: 'Sales', icon: CreditCard, children: [
+    label: 'Sales', icon: CreditCard, menu: 'sales', children: [
       { to: '/sales/invoices', label: 'Invoices' },
       { to: '/sales/orders', label: 'Orders list' },
       { to: '/sales/store', label: 'Store' },
@@ -30,10 +30,10 @@ const navItems = [
       { to: '/sales/contracts', label: 'Contracts' },
     ]
   },
-  { to: '/notes', icon: FileText, label: 'Notes' },
-  { to: '/messages', icon: MessageSquare, label: 'Messages' },
+  { to: '/notes', icon: FileText, label: 'Notes', menu: 'notes' },
+  { to: '/messages', icon: MessageSquare, label: 'Messages', menu: 'messages' },
   {
-    label: 'Team', icon: UserCircle, children: [
+    label: 'Team', icon: UserCircle, menu: 'team', children: [
       { to: '/team/members', label: 'Team members' },
       { to: '/team/timecards', label: 'Time cards' },
       { to: '/team/leave', label: 'Leave' },
@@ -41,13 +41,14 @@ const navItems = [
       { to: '/team/help', label: 'Help' },
     ]
   },
-  { to: '/files', icon: FolderOpen, label: 'Files' },
-  { to: '/expenses', icon: Receipt, label: 'Expenses' },
-  { to: '/reports', icon: BarChart2, label: 'Reports' },
-  { to: '/todo', icon: CheckCircle, label: 'To do' },
+  { to: '/files', icon: FolderOpen, label: 'Files', menu: 'files' },
+  { to: '/expenses', icon: Receipt, label: 'Expenses', menu: 'expenses' },
+  { to: '/reports', icon: BarChart2, label: 'Reports', menu: 'reports' },
+  { to: '/todo', icon: CheckCircle, label: 'To do', menu: 'todo' },
   {
-    label: 'Settings', icon: Settings, children: [
+    label: 'Settings', icon: Settings, menu: 'settings', children: [
       { to: '/settings/users', label: 'User Accounts' },
+      { to: '/settings/roles', label: 'Roles' },
       { to: '/settings/audit-log', label: 'Audit Trail' },
     ]
   },
@@ -56,9 +57,11 @@ const navItems = [
 export default function Layout() {
   const dispatch = useDispatch()
   const navigate = useNavigate()
-  const { user } = useSelector((s: RootState) => s.auth)
+  const { user, permissions } = useSelector((s: RootState) => s.auth)
   const { sidebarOpen } = useSelector((s: RootState) => s.ui)
   const [expanded, setExpanded] = useState<string[]>(['Sales', 'Team'])
+
+  const visibleNav = navItems.filter(item => canRead(permissions, user?.role, item.menu))
 
   const toggleExpand = (label: string) => {
     setExpanded(prev =>
@@ -85,7 +88,7 @@ export default function Layout() {
 
         {/* Nav */}
         <nav className="flex-1 py-2">
-          {navItems.map((item) => {
+          {visibleNav.map((item) => {
             if ('children' in item) {
               const isExp = expanded.includes(item.label)
               const Icon = item.icon

@@ -22,7 +22,8 @@ OneTool adalah aplikasi bisnis all-in-one yang mencakup manajemen klien, sales, 
 - **Language**: Go 1.23
 - **Framework**: Gin (HTTP router)
 - **ORM**: GORM v2 + PostgreSQL 15
-- **Auth**: JWT (golang-jwt/v5) + bcrypt
+- **Auth**: JWT (golang-jwt/v5) + bcrypt + in-memory token blacklist
+- **Email**: `net/smtp` stdlib — tidak ada dependency tambahan
 - **Structure**: Clean Architecture (cmd / internal)
 - **Layers**: handlers → middleware → models → database → config
 - **Containerization**: Docker
@@ -35,7 +36,7 @@ root/
 ├── Frontend/
 │   ├── src/
 │   │   ├── pages/
-│   │   │   ├── Auth/         # LoginPage, ForgotPasswordPage
+│   │   │   ├── Auth/         # LoginPage, ForgotPasswordPage, ResetPasswordPage
 │   │   │   ├── Dashboard/    # DashboardPage
 │   │   │   ├── Clients/      # ClientsPage, ClientDetailPage
 │   │   │   ├── Sales/        # StorePage, ItemsPage, OrdersPage,
@@ -49,11 +50,11 @@ root/
 │   │   │   ├── Expenses/     # ExpensesPage
 │   │   │   ├── Notes/        # NotesPage
 │   │   │   ├── Events/       # EventsPage
-│   │   │   ├── Files/        # FilesPage
-│   │   │   ├── Reports/      # ReportsPage (+ Export CSV)
+│   │   │   ├── Files/        # FilesPage (upload + download berfungsi)
+│   │   │   ├── Reports/      # ReportsPage (+ Export CSV/Excel)
 │   │   │   ├── Team/         # TeamMembersPage, TimeCardsPage,
 │   │   │   │                 # LeavePage, AnnouncementsPage, HelpPage
-│   │   │   └── Settings/     # UsersPage, AuditLogPage
+│   │   │   └── Settings/     # UsersPage, RolesPage, AuditLogPage
 │   │   ├── components/
 │   │   │   ├── layout/       # Layout.tsx
 │   │   │   └── common/       # ProtectedRoute, ManageLabelsModal, index
@@ -75,38 +76,38 @@ root/
 │   └── Dockerfile
 ├── Backend/
 │   ├── cmd/
-│   │   ├── api/main.go       # entry point API server
-│   │   └── seed/main.go      # database seeder
+│   │   ├── api/main.go        # entry point API server
+│   │   └── seed/main.go       # database seeder
 │   └── internal/
-│       ├── config/config.go
+│       ├── config/config.go   # termasuk SMTP + UploadDir + AppURL
 │       ├── database/database.go
-│       ├── middleware/auth.go  # AuthRequired, AdminRequired, CORS
-│       ├── models/models.go    # 22 entitas, semua pakai soft delete (+ AuditLog)
+│       ├── middleware/auth.go  # AuthRequired, AdminRequired, CORS, token blacklist
+│       ├── models/models.go    # 22 entitas (+ AuditLog, + reset token fields di User)
 │       ├── handlers/
-│       │   ├── auth.go
-│       │   └── handlers.go    # Semua handler bisnis di sini
-│       └── server/server.go   # Route setup (~65 endpoints)
-├── docker-compose.yml
+│       │   ├── auth.go         # Login, Register, Me, Logout, ForgotPassword, ResetPassword, ChangePassword
+│       │   └── handlers.go     # Semua handler bisnis di sini
+│       └── server/server.go    # Route setup (~70 endpoints)
+├── docker-compose.yml          # termasuk volume uploads_data + env SMTP
 ├── .gitignore
 └── README.md
 ```
 
 ## Fitur Utama
-- **Auth**: Login, Forgot Password (stub), Protected Routes, JWT Middleware
+- **Auth**: Login, **Forgot Password (kirim email)**, **Reset Password**, Protected Routes, JWT Middleware, **Logout invalidate token**
 - **Dashboard**: Stats real-time (tasks, projects, invoices, team, clock in/out)
 - **Clients**: Manajemen klien & detail klien (10 tab: overview, contacts, projects, invoices, dll)
 - **Leads**: Pipeline leads/prospek (List + Kanban drag-drop), **konversi Lead → Client**
-- **Sales**: Store, Items, Orders, Contracts, Payments, Invoices (dengan line items & payments)
+- **Sales**: Store, Items, Orders, Contracts, Payments, Invoices (dengan line items & payments, **Edit Invoice**), **Export PDF**
 - **Projects**: Manajemen proyek & detail proyek (List + Gantt)
 - **Tasks**: Manajemen tugas (List + Kanban + Gantt)
 - **Todo**: Per-user todo list
 - **Events**: Kalender events
-- **Files**: File manager (metadata only, storage belum diimplementasi)
+- **Files**: File manager — **upload & download berfungsi**, storage lokal persisten (Docker volume)
 - **Expenses**: Pencatatan pengeluaran per-user
 - **Notes**: Catatan per-user
 - **Team**: Members, Time Cards (clock in/out dengan duration), Leave Management, Announcements
 - **Reports**: Invoice summary, Projects summary, Leads funnel, Expenses total, **Export CSV (Excel)**
-- **Settings**: Manajemen users, **Audit Trail**
+- **Settings**: Manajemen users, **Dynamic RBAC (App Roles + Permissions)**, **Audit Trail**
 
 ## Business Logic Penting
 
@@ -129,31 +130,128 @@ Di frontend: tombol "→ Client" di setiap baris list dan kanban card.
 `GET /api/v1/dashboard` mengembalikan 22 field real-time:
 task breakdown, invoice per-status amounts, project counts, clocked_in_count, on_leave_today, dll.
 
-### Audit Trail (v1.0.2)
+### Audit Trail
 `recordAudit()` helper di `handlers.go` dipanggil otomatis di setiap operasi Create/Update/Delete/Convert untuk entitas: **Client, Project, Task, Lead, Invoice, Contract**.
 - Model: `AuditLog` — menyimpan `user_id`, `action`, `entity_type`, `entity_id`, `entity_name`, `ip_address`, `created_at`
 - Endpoint: `GET /api/v1/audit-logs` (Admin only) — support filter `entity_type`, `action`, `from`, `to`, `user_id`
 - Frontend: halaman `Settings > Audit Trail` (`/settings/audit-log`)
+- `AuditLog` tidak pakai soft delete — log bersifat immutable/permanen
 
-### Invoice PDF Export (v1.0.2)
-`GET /api/v1/invoices/:id/pdf` — menghasilkan HTML invoice yang di-style rapi.
-Browser membuka di tab baru dan auto-trigger `window.print()` → user simpan sebagai PDF.
-Tombol printer ikon ada di setiap baris tabel InvoicesPage.
+### Project Auto-fill di Form Sales
+Form Add/Edit di **Orders, Contracts, Invoices** mendukung auto-fill dari project yang dipilih:
+- **Orders** (`OrdersPage`): `order_date` ← `project.start_date`, `amount` ← `project.price`, `client_id` ← `project.client_id`, `currency` ← `project.currency`
+- **Contracts** (`ContractsPage`): `contract_date` ← `project.start_date`, `valid_until` ← `project.deadline`, `amount` ← `project.price`, `client_id` ← `project.client_id`, `currency` ← `project.currency`
+- **Invoices** (`InvoicesPage`): `bill_date` ← `project.start_date`, `due_date` ← `project.deadline`, `total_amount` ← `project.price`, `client_id` ← `project.client_id`, `currency` ← `project.currency`
 
-### Reports Export CSV (v1.0.2)
+Saat project dipilih, field yang ter-auto-fill menampilkan hint biru di bawah field ("Auto-filled from project..."). Semua field tetap bisa diedit manual setelah auto-fill. Pattern menggunakan `setForm((f) => ({ ...f, project_id: pid, ...(proj ? { ... } : {}) }))`.
+
+### Invoice PDF Export
+`GET /api/v1/invoices/:id/pdf` — generate HTML invoice styled rapi.
+Browser buka di tab baru dan auto-trigger `window.print()` → user simpan sebagai PDF.
+Tombol printer ikon di setiap baris tabel InvoicesPage.
+
+### Reports Export CSV
 `GET /api/v1/reports/export?type=invoices&year=2026` — generate CSV dengan UTF-8 BOM agar Excel baca karakter Indonesia dengan benar.
-Tipe yang tersedia: `invoices`, `expenses`, `leads`, `projects`, `timecards`.
-Tombol "Export Excel" ada di header halaman Reports, otomatis download sesuai tab aktif.
+Tipe tersedia: `invoices`, `expenses`, `leads`, `projects`, `timecards`.
+Tombol "Export Excel" di header halaman Reports, otomatis download sesuai tab aktif.
+
+### File Storage (Local)
+- File tersimpan di disk dengan struktur `{uploadDir}/YYYY/MM/timestamp_namafile`
+- Docker volume `uploads_data` di-mount ke `/app/uploads` — persisten antar redeploy
+- Upload: `POST /api/v1/files/upload` — simpan file ke disk, catat metadata di DB
+- Download: `GET /api/v1/files/:id/download` — download dengan autentikasi, cek kepemilikan
+- Tombol Download (ikon) muncul saat hover di baris file di FilesPage
+
+### Forgot Password & Reset Password
+- `POST /api/v1/auth/forgot-password` — cari user by email, generate token 32-byte hex acak, simpan ke `User.ResetToken` + `User.ResetTokenExpiry` (1 jam), kirim email HTML via `net/smtp`
+- `POST /api/v1/auth/reset-password` — verifikasi token & expiry, set password baru, hapus token dari DB
+- Frontend: `ForgotPasswordPage` — form input email + pesan sukses; `ResetPasswordPage` — halaman di `/reset-password?token=xxx`
+- Jika `SMTP_HOST` kosong, email tidak dikirim (aman untuk dev lokal — tidak error)
+
+### JWT Token Invalidation (Logout)
+- Setiap JWT sekarang punya `JTI` (JWT ID) — 16-byte hex acak, unik per token
+- Logout: `POST /api/v1/auth/logout` — blacklist JTI dengan expiry sesuai token, menggunakan `sync.Map` in-memory
+- Setiap request: `AuthRequired` middleware cek apakah JTI ada di blacklist sebelum lanjut
+- Cleanup otomatis setiap 15 menit — hapus entry yang sudah expired
+- Catatan: blacklist hilang saat server restart, tapi token lama tetap aman karena JWT expiry tetap berlaku
+
+### Dynamic RBAC (App Roles & Permissions)
+- **Dua layer role**: `role` string (`admin`/`member`) = system role (backward compat); `app_role_id` FK ke tabel `AppRole` = dynamic role
+- **Admin**: selalu full access, permissions diabaikan
+- **Member tanpa AppRole** (`app_role_id = NULL`): full access (backward compat)
+- **Member dengan AppRole**: akses dibatasi sesuai `RolePermission` milik role tersebut
+- **`nil permissions = full access`** — konvensi ini dipakai di frontend (`authSlice`) dan backend (`resolvePermissions`)
+- Backend: `AppRole` model (name, description) + `RolePermission` model (app_role_id, menu, can_read, can_edit); ON DELETE CASCADE
+- Backend endpoints (admin only CUD): `GET/POST/PUT/DELETE /api/v1/roles`, `PUT /api/v1/roles/:id/permissions`
+- Login & `/auth/me` mengembalikan field `permissions` (array atau null) — disimpan di Redux + localStorage/sessionStorage
+- Frontend: `canRead(permissions, role, menu)` dan `canEdit(permissions, role, menu)` di `authSlice.ts`
+- Sidebar di `Layout.tsx` filter nav items via `canRead()` — menu yang tidak boleh diakses tidak muncul
+- Halaman `Settings > Roles` (`/settings/roles`): CRUD role + permission matrix (15 menu, checkbox Read/Edit per baris)
+- Halaman `Settings > Users`: dropdown "App Role" di Add/Edit modal — hanya muncul saat Role = Member
+- Menu keys yang digunakan di permission matrix: `dashboard`, `events`, `clients`, `projects`, `tasks`, `leads`, `sales`, `notes`, `messages`, `team`, `files`, `expenses`, `reports`, `todo`, `settings`
+
+## API Endpoints Backend
+
+### Auth (public)
+| Method | Path | Keterangan |
+|--------|------|-----------|
+| POST | `/api/v1/auth/login` | Login |
+| POST | `/api/v1/auth/register` | Register user baru |
+| POST | `/api/v1/auth/forgot-password` | Kirim email reset password |
+| POST | `/api/v1/auth/reset-password` | Reset password dengan token |
+
+### Auth (protected)
+| Method | Path | Keterangan |
+|--------|------|-----------|
+| GET | `/api/v1/auth/me` | Info user saat ini |
+| POST | `/api/v1/auth/logout` | Logout + invalidate token |
+| PUT | `/api/v1/auth/change-password` | Ganti password |
+
+### Files
+| Method | Path | Keterangan |
+|--------|------|-----------|
+| GET | `/api/v1/files` | List file/folder milik user |
+| POST | `/api/v1/files/upload` | Upload file (simpan ke disk) |
+| POST | `/api/v1/files/folder` | Buat folder baru |
+| GET | `/api/v1/files/:id/download` | Download file (auth required) |
+| DELETE | `/api/v1/files/:id` | Hapus file/folder |
+| PATCH | `/api/v1/files/:id/favorite` | Toggle favorit |
+
+### Reports
+| Method | Path | Keterangan |
+|--------|------|-----------|
+| GET | `/api/v1/reports/invoices-summary` | Ringkasan invoice per klien |
+| GET | `/api/v1/reports/projects-summary` | Ringkasan status proyek |
+| GET | `/api/v1/reports/leads-summary` | Funnel leads per status |
+| GET | `/api/v1/reports/expenses-summary` | Total pengeluaran |
+| GET | `/api/v1/reports/export?type=X&year=Y` | Export CSV — type: invoices/expenses/leads/projects/timecards |
+
+### Audit Logs (Admin only)
+| Method | Path | Keterangan |
+|--------|------|-----------|
+| GET | `/api/v1/audit-logs` | List audit log dengan filter |
+
+### App Roles (Admin only untuk CUD)
+| Method | Path | Keterangan |
+|--------|------|-----------|
+| GET | `/api/v1/roles` | List semua app roles |
+| POST | `/api/v1/roles` | Buat role baru (admin only) |
+| GET | `/api/v1/roles/:id` | Detail role + permissions (admin only) |
+| PUT | `/api/v1/roles/:id` | Update nama/deskripsi role (admin only) |
+| DELETE | `/api/v1/roles/:id` | Hapus role (admin only) |
+| PUT | `/api/v1/roles/:id/permissions` | Set permission matrix (admin only) |
 
 ## API Services di Frontend (`src/services/api.ts`)
 Setiap modul punya service object:
-- `authService`, `dashboardService`, `clientService`, `projectService`, `taskService`
+- `authService` — login, register, me, logout, forgotPassword, resetPassword (via `api.post('/auth/reset-password')`)
+- `dashboardService`, `clientService`, `projectService`, `taskService`
 - `leadService`, `invoiceService`, `paymentService`, `contractService`, `itemService`
 - `orderService`, `eventService`, `noteService`, `expenseService`, `fileService`
-- `todoService`, `teamService`, `reportService`, `labelService`
+- `todoService`, `teamService`, `labelService`
+- `reportService` — termasuk `exportCSV(type, year)` untuk download CSV
 - `auditService` — `list(params)` → `GET /api/v1/audit-logs`
 - `invoicePDFService` — `openPDF(id)` → buka PDF di tab baru
-- `reportService.exportCSV(type, year)` — download CSV
+- `roleService` — list, get, create, update, delete, setPermissions → `GET/POST/PUT/DELETE /api/v1/roles`
 
 ## Coding Conventions
 
@@ -176,8 +274,9 @@ Setiap modul punya service object:
 - Database logic di `internal/database`
 - Business logic di `internal/handlers`
 - Model/struct definisi di `internal/models`
-- Semua model menggunakan `gorm.DeletedAt` (soft delete) — **kecuali `AuditLog` yang tidak pakai soft delete** (log harus permanen)
+- Semua model menggunakan `gorm.DeletedAt` (soft delete) — **kecuali `AuditLog`** (immutable)
 - Tanggal menggunakan tipe `FlexTime` (wrapper `time.Time` yang menerima RFC3339 dan `YYYY-MM-DD`)
+- Email dikirim secara `goroutine` (non-blocking) agar tidak delay HTTP response
 
 ## Hal yang JANGAN Dilakukan
 - Jangan tambah dependency baru tanpa diskusi
@@ -187,12 +286,54 @@ Setiap modul punya service object:
 - Jangan campur business logic dengan database logic
 - Jangan commit `Frontend/dist/`, `node_modules/`, `.env`, `Backend/api.exe`
 - Jangan hapus atau soft-delete record `AuditLog` — log harus immutable
+- Jangan hapus file fisik dari disk tanpa menghapus record DB-nya juga (dan sebaliknya)
 
 ## Environment
-- File `.env` ada di root repo (dibaca docker-compose) dan `Backend/.env` (untuk run manual)
-- `DB_HOST=postgres` untuk Docker, `DB_HOST=localhost` untuk run manual
-- Jangan commit file `.env` — sudah masuk `.gitignore`
-- Version app ada di `Backend/internal/server/server.go` (health endpoint) dan `Frontend/src/components/layout/Layout.tsx` (sidebar)
+
+File `.env` ada di root repo (dibaca docker-compose) dan `Backend/.env` (untuk run manual).
+Jangan commit `.env` — sudah ada di `.gitignore`.
+
+### Semua env vars yang digunakan:
+```env
+# App
+ENV=production
+PORT=8080
+APP_URL=https://yourdomain.com
+
+# Database
+DB_HOST=postgres          # gunakan 'localhost' untuk run manual
+DB_PORT=5432
+DB_USER=cbqa
+DB_PASSWORD=cbqa123
+DB_NAME=cbqa_db
+
+# Auth
+JWT_SECRET=ganti-dengan-secret-yang-kuat
+JWT_EXP_HOURS=24
+
+# File Storage (docker-compose sudah set otomatis, tidak perlu diubah)
+UPLOAD_DIR=/app/uploads
+
+# SMTP (untuk forgot password — jika kosong, email tidak dikirim)
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_USER=your@email.com
+SMTP_PASSWORD=your-app-password
+SMTP_FROM=noreply@cbqa.com
+
+# PostgreSQL (untuk postgres container)
+POSTGRES_USER=cbqa
+POSTGRES_PASSWORD=cbqa123
+POSTGRES_DB=cbqa_db
+
+# pgAdmin (opsional)
+PGADMIN_DEFAULT_EMAIL=admin@cbqa.com
+PGADMIN_DEFAULT_PASSWORD=admin123
+```
+
+Version app ada di dua tempat (update keduanya saat bump versi):
+- `Backend/internal/server/server.go` — health endpoint `{"version":"x.x.x"}`
+- `Frontend/src/components/layout/Layout.tsx` — teks versi di sidebar
 
 ## Cara Jalankan Manual (tanpa Docker)
 
@@ -244,18 +385,40 @@ docker-compose down          # stop semua
 docker-compose --profile tools up  # jalankan + pgAdmin (localhost:5050)
 ```
 
+Volume yang digunakan:
+- `postgres_data` — data PostgreSQL
+- `uploads_data` — file yang diupload user (mount ke `/app/uploads` di container backend)
+
 ## GitHub
 - Remote: https://github.com/Nexora-Tech-Team/ONETOOL
 - Branch utama: `main`
 - Struktur root: `Backend/`, `Frontend/`, `docker-compose.yml`
+- Deploy otomatis via GitHub Actions saat push ke `main`
+- Script deploy di server: `~/deploy-onetool.sh`
 
 ## Changelog
 
 ### v1.0.2 (2026-04-26)
-- Audit Trail: rekaman otomatis semua perubahan data (Client, Project, Task, Lead, Invoice, Contract)
-- Invoice PDF Export: generate & print invoice sebagai PDF langsung dari browser
-- Reports Export CSV: download laporan ke CSV/Excel untuk semua tab Reports
-- Fix deploy: port 8080 conflict saat redeploy di GitHub Actions
+**Fitur baru:**
+- Audit Trail — rekaman otomatis Create/Update/Delete/Convert untuk Client, Project, Task, Lead, Invoice, Contract
+- Invoice PDF Export — generate & print invoice langsung dari browser
+- Reports Export CSV — download laporan ke CSV (bisa dibuka di Excel) untuk semua tab Reports
+- Dynamic RBAC — admin buat App Role, set permission matrix per menu (Read/Edit), assign ke user Member
+- Invoices Edit — tombol Edit di tiap baris tabel, modal reuse form Add dengan pre-fill data existing
+- Project Auto-fill — form Orders/Contracts/Invoices auto-fill tanggal, amount, client, currency dari project yang dipilih
+- Payments Search — server-side search (debounce 300ms) across invoice number, client name, payment method, note; tambah kolom Client
+- FormField hint — teks biru di bawah field saat value di-auto-fill dari project
+
+**Sprint 1 Critical Fix:**
+- File Storage — file upload sekarang benar-benar tersimpan ke disk, download berfungsi, Docker volume persisten
+- Forgot Password — kirim email reset via SMTP (`net/smtp` stdlib), token berlaku 1 jam, halaman `/reset-password?token=xxx`
+- JWT Logout — token di-blacklist (in-memory `sync.Map`) saat logout, tidak bisa dipakai lagi; cleanup otomatis setiap 15 menit
+- Clock In/Out — dispatch `fetchMe()` setelah clock action agar Redux state `user.clocked_in` terupdate; card Dashboard berubah hijau saat clocked in
+- Dashboard My Tasks — re-fetch saat `user.id` tersedia (fix race condition saat Redux belum hydrated)
+- Login — trim whitespace email sebelum dispatch untuk cegah validasi 400
+
+**Bug fix:**
+- Deploy: ganti `fuser -k` dengan `docker rm -f` untuk benar-benar release port 8080 saat redeploy
 
 ### v1.0.1
 - Initial production release

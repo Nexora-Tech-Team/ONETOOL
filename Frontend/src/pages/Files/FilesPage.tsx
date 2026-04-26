@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef } from 'react'
 import { fileService } from '@/services/api'
 import { toast } from 'react-toastify'
-import { Folder, File, Star, Upload, FolderPlus, Trash2, ChevronRight } from 'lucide-react'
+import { Folder, File, Star, Upload, FolderPlus, Trash2, ChevronRight, Download } from 'lucide-react'
 import { Loading, EmptyState, Modal, FormField, ConfirmDialog } from '@/components/common'
 import clsx from 'clsx'
 
@@ -177,6 +177,29 @@ export default function FilesPage() {
                             <td className="text-gray-400 text-xs">{f.mime_type || '-'}</td>
                             <td>
                               <div className="flex gap-1 opacity-0 group-hover:opacity-100">
+                                {f.url && (
+                                  <a
+                                    href={f.url}
+                                    download={f.name}
+                                    onClick={e => {
+                                      e.preventDefault()
+                                      const token = localStorage.getItem('token') || sessionStorage.getItem('token') || ''
+                                      const base = import.meta.env.VITE_API_URL || '/api/v1'
+                                      fetch(`${base}/files/${f.id}/download`, { headers: { Authorization: `Bearer ${token}` } })
+                                        .then(r => r.blob()).then(blob => {
+                                          const a = document.createElement('a')
+                                          a.href = URL.createObjectURL(blob)
+                                          a.download = f.name
+                                          a.click()
+                                          URL.revokeObjectURL(a.href)
+                                        })
+                                    }}
+                                    className="btn btn-secondary text-xs py-0.5 px-2"
+                                    title="Download"
+                                  >
+                                    <Download size={11} />
+                                  </a>
+                                )}
                                 <button onClick={() => handleToggleFavorite(f.id)} className="btn btn-secondary text-xs py-0.5 px-2">
                                   <Star size={11} />
                                 </button>

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { orderService, clientService } from '@/services/api'
+import { orderService, clientService, projectService } from '@/services/api'
 import { toISODate } from '@/utils/format'
 import { toast } from 'react-toastify'
 import { Plus, FileDown } from 'lucide-react'
@@ -12,13 +12,14 @@ export default function OrdersPage() {
   const [orders, setOrders] = useState<any[]>([])
   const [filtered, setFiltered] = useState<any[]>([])
   const [clients, setClients] = useState<any[]>([])
+  const [projects, setProjects] = useState<any[]>([])
   const [search, setSearch] = useState('')
   const [loading, setLoading] = useState(true)
   const [showModal, setShowModal] = useState(false)
   const [deleteId, setDeleteId] = useState<number | null>(null)
   const [saving, setSaving] = useState(false)
   const [form, setForm] = useState<any>({
-    order_number: '', client_id: '', order_date: '', amount: '', currency: 'IDR', status: 'pending',
+    order_number: '', client_id: '', project_id: '', order_date: '', amount: '', currency: 'IDR', status: 'pending',
   })
 
   const load = () => {
@@ -32,6 +33,7 @@ export default function OrdersPage() {
   useEffect(() => { load() }, [])
   useEffect(() => {
     clientService.list({ limit: 100 }).then(r => setClients(r.data.data || [])).catch(() => {})
+    projectService.list({ limit: 100 }).then(r => setProjects(r.data.data || [])).catch(() => {})
   }, [])
   useEffect(() => {
     if (!search) { setFiltered(orders); return }
@@ -42,7 +44,7 @@ export default function OrdersPage() {
   const genOrderNumber = () => `ORD-${new Date().getFullYear()}-${String(Date.now()).slice(-4)}`
 
   const openAdd = () => {
-    setForm({ order_number: genOrderNumber(), client_id: '', order_date: new Date().toISOString().split('T')[0], amount: '', currency: 'IDR', status: 'pending' })
+    setForm({ order_number: genOrderNumber(), client_id: '', project_id: '', order_date: new Date().toISOString().split('T')[0], amount: '', currency: 'IDR', status: 'pending' })
     setShowModal(true)
   }
 
@@ -50,7 +52,7 @@ export default function OrdersPage() {
     if (!form.client_id) { toast.error('Client is required'); return }
     setSaving(true)
     try {
-      await orderService.create({ ...form, client_id: Number(form.client_id), amount: Number(form.amount), order_date: toISODate(form.order_date) })
+      await orderService.create({ ...form, client_id: Number(form.client_id), project_id: form.project_id ? Number(form.project_id) : null, amount: Number(form.amount), order_date: toISODate(form.order_date) })
       toast.success('Order created!')
       setShowModal(false)
       load()
@@ -135,10 +137,33 @@ export default function OrdersPage() {
               {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
           </FormField>
-          <FormField label="Order Date">
+          <FormField label="Project">
+            <select
+              className="input"
+              value={form.project_id}
+              onChange={e => {
+                const pid = e.target.value
+                const proj = projects.find((p: any) => String(p.id) === pid)
+                setForm((f: any) => ({
+                  ...f,
+                  project_id: pid,
+                  ...(proj ? {
+                    client_id:  String(proj.client_id || f.client_id),
+                    order_date: proj.start_date?.split('T')[0] || f.order_date,
+                    amount:     proj.price ?? f.amount,
+                    currency:   proj.currency || f.currency,
+                  } : {}),
+                }))
+              }}
+            >
+              <option value="">No project</option>
+              {projects.map((p: any) => <option key={p.id} value={p.id}>{p.title}</option>)}
+            </select>
+          </FormField>
+          <FormField label="Order Date" hint={form.project_id ? 'Auto-filled from project start date' : undefined}>
             <input className="input" type="date" value={form.order_date} onChange={e => setForm({ ...form, order_date: e.target.value })} />
           </FormField>
-          <FormField label="Amount">
+          <FormField label="Amount" hint={form.project_id ? 'Auto-filled from project price' : undefined}>
             <PriceInput value={form.amount} onChange={v => setForm({ ...form, amount: v })} />
           </FormField>
           <FormField label="Currency">

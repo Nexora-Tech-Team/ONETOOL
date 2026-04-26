@@ -1,12 +1,14 @@
 import { useEffect, useState } from 'react'
 import { teamService } from '@/services/api'
-import { useSelector } from 'react-redux'
-import { RootState } from '@/store'
+import { useSelector, useDispatch } from 'react-redux'
+import { RootState, AppDispatch } from '@/store'
+import { fetchMe } from '@/store/slices/authSlice'
 import { toast } from 'react-toastify'
 import { Clock, LogIn, LogOut } from 'lucide-react'
 import { Loading, EmptyState, Avatar } from '@/components/common'
 
 export default function TimeCardsPage() {
+  const dispatch = useDispatch<AppDispatch>()
   const user = useSelector((s: RootState) => s.auth.user)
   const [cards, setCards] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
@@ -23,24 +25,28 @@ export default function TimeCardsPage() {
   useEffect(() => { load() }, [])
 
   const handleClockIn = async () => {
+    if (user?.clocked_in) { toast.warning('You are already clocked in'); return }
     setClockLoading(true)
     try {
       await teamService.clockIn()
+      await dispatch(fetchMe())
       toast.success('Clocked in successfully!')
       load()
     } catch (err: any) {
-      toast.error(err.response?.data?.error || 'Already clocked in')
+      toast.error(err.response?.data?.error || 'Failed to clock in')
     } finally { setClockLoading(false) }
   }
 
   const handleClockOut = async () => {
+    if (!user?.clocked_in) { toast.warning('You are not clocked in'); return }
     setClockLoading(true)
     try {
       await teamService.clockOut()
+      await dispatch(fetchMe())
       toast.success('Clocked out successfully!')
       load()
     } catch (err: any) {
-      toast.error(err.response?.data?.error || 'No active clock-in found')
+      toast.error(err.response?.data?.error || 'Failed to clock out')
     } finally { setClockLoading(false) }
   }
 

@@ -21,6 +21,7 @@ export default function InvoicesPage() {
   const [loading, setLoading] = useState(true)
   const [showModal, setShowModal] = useState(false)
   const [showManageLabels, setShowManageLabels] = useState(false)
+  const [editItem, setEditItem] = useState<any>(null)
   const [deleteId, setDeleteId] = useState<number | null>(null)
   const [saving, setSaving] = useState(false)
   const [form, setForm] = useState<any>({
@@ -51,10 +52,31 @@ export default function InvoicesPage() {
   }
 
   const openAdd = () => {
+    setEditItem(null)
     setForm({
       invoice_number: genInvoiceNumber(), client_id: '', project_id: '', bill_date: '', due_date: '',
       status: 'draft', currency: 'IDR', total_amount: '', tax_amount: '0', discount_amount: '0',
       paid_amount: '0', due_amount: '', notes: '',
+    })
+    setShowModal(true)
+  }
+
+  const openEdit = (inv: any) => {
+    setEditItem(inv)
+    setForm({
+      invoice_number: inv.invoice_number,
+      client_id: String(inv.client_id || ''),
+      project_id: String(inv.project_id || ''),
+      bill_date: inv.bill_date?.split('T')[0] || '',
+      due_date: inv.due_date?.split('T')[0] || '',
+      status: inv.status,
+      currency: inv.currency,
+      total_amount: inv.total_amount,
+      tax_amount: inv.tax_amount,
+      discount_amount: inv.discount_amount,
+      paid_amount: inv.paid_amount,
+      due_amount: inv.due_amount,
+      notes: inv.notes || '',
     })
     setShowModal(true)
   }
@@ -75,11 +97,16 @@ export default function InvoicesPage() {
         bill_date: toISODate(form.bill_date),
         due_date: toISODate(form.due_date),
       }
-      await invoiceService.create(payload)
-      toast.success('Invoice created!')
+      if (editItem) {
+        await invoiceService.update(editItem.id, payload)
+        toast.success('Invoice updated!')
+      } else {
+        await invoiceService.create(payload)
+        toast.success('Invoice created!')
+      }
       setShowModal(false)
       load()
-    } catch { toast.error('Failed to create invoice') }
+    } catch { toast.error(editItem ? 'Failed to update invoice' : 'Failed to create invoice') }
     finally { setSaving(false) }
   }
 
@@ -157,6 +184,7 @@ export default function InvoicesPage() {
                           >
                             <Printer size={12} />
                           </button>
+                          <button className="btn btn-secondary text-xs py-0.5 px-2" onClick={() => openEdit(inv)}>Edit</button>
                           <button className="btn btn-danger text-xs py-0.5 px-2" onClick={() => setDeleteId(inv.id)}>×</button>
                         </div>
                       </td>
@@ -170,11 +198,11 @@ export default function InvoicesPage() {
         )}
       </div>
 
-      <Modal open={showModal} onClose={() => setShowModal(false)} title="Add Invoice" size="lg"
+      <Modal open={showModal} onClose={() => setShowModal(false)} title={editItem ? 'Edit Invoice' : 'Add Invoice'} size="lg"
         footer={
           <>
             <button className="btn btn-secondary" onClick={() => setShowModal(false)}>Cancel</button>
-            <button className="btn btn-primary" onClick={handleSave} disabled={saving}>{saving ? 'Saving...' : 'Save'}</button>
+            <button className="btn btn-primary" onClick={handleSave} disabled={saving}>{saving ? 'Saving...' : editItem ? 'Update' : 'Save'}</button>
           </>
         }
       >
@@ -194,15 +222,33 @@ export default function InvoicesPage() {
             </select>
           </FormField>
           <FormField label="Project">
-            <select className="input" value={form.project_id} onChange={e => setForm({ ...form, project_id: e.target.value })}>
+            <select
+              className="input"
+              value={form.project_id}
+              onChange={e => {
+                const pid = e.target.value
+                const proj = projects.find((p: any) => String(p.id) === pid)
+                setForm((f: any) => ({
+                  ...f,
+                  project_id: pid,
+                  ...(proj ? {
+                    client_id:    String(proj.client_id || f.client_id),
+                    bill_date:    proj.start_date?.split('T')[0] || f.bill_date,
+                    due_date:     proj.deadline?.split('T')[0]   || f.due_date,
+                    total_amount: proj.price ?? f.total_amount,
+                    currency:     proj.currency || f.currency,
+                  } : {}),
+                }))
+              }}
+            >
               <option value="">No project</option>
-              {projects.map(p => <option key={p.id} value={p.id}>{p.title}</option>)}
+              {projects.map((p: any) => <option key={p.id} value={p.id}>{p.title}</option>)}
             </select>
           </FormField>
-          <FormField label="Bill Date">
+          <FormField label="Bill Date" hint={form.project_id ? 'Auto-filled from project start date' : undefined}>
             <input className="input" type="date" value={form.bill_date} onChange={e => setForm({ ...form, bill_date: e.target.value })} />
           </FormField>
-          <FormField label="Due Date">
+          <FormField label="Due Date" hint={form.project_id ? 'Auto-filled from project deadline' : undefined}>
             <input className="input" type="date" value={form.due_date} onChange={e => setForm({ ...form, due_date: e.target.value })} />
           </FormField>
           <FormField label="Currency">
@@ -210,7 +256,7 @@ export default function InvoicesPage() {
               <option value="IDR">IDR</option><option value="USD">USD</option><option value="EUR">EUR</option>
             </select>
           </FormField>
-          <FormField label="Total Amount">
+          <FormField label="Total Amount" hint={form.project_id ? 'Auto-filled from project price' : undefined}>
             <PriceInput value={form.total_amount} onChange={v => setForm({ ...form, total_amount: v })} />
           </FormField>
           <FormField label="Tax Amount">

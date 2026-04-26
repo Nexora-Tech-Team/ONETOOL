@@ -1,9 +1,12 @@
 package middleware
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/cbqa/backend/internal/config"
@@ -15,16 +18,68 @@ type Claims struct {
 	UserID uint   `json:"user_id"`
 	Email  string `json:"email"`
 	Role   string `json:"role"`
+	JTI    string `json:"jti"`
 	jwt.RegisteredClaims
 }
 
+// ─── Token Blacklist (in-memory) ─────────────────────
+
+type blacklistEntry struct{ expiry time.Time }
+
+var (
+	blacklist   = sync.Map{}
+	cleanupOnce sync.Once
+)
+
+func startCleanup() {
+	go func() {
+		for {
+			time.Sleep(15 * time.Minute)
+			now := time.Now()
+			blacklist.Range(func(k, v any) bool {
+				if v.(blacklistEntry).expiry.Before(now) {
+					blacklist.Delete(k)
+				}
+				return true
+			})
+		}
+	}()
+}
+
+func BlacklistToken(jti string, expiry time.Time) {
+	cleanupOnce.Do(startCleanup)
+	blacklist.Store(jti, blacklistEntry{expiry: expiry})
+}
+
+func isBlacklisted(jti string) bool {
+	v, ok := blacklist.Load(jti)
+	if !ok {
+		return false
+	}
+	if v.(blacklistEntry).expiry.Before(time.Now()) {
+		blacklist.Delete(jti)
+		return false
+	}
+	return true
+}
+
+func newJTI() string {
+	b := make([]byte, 16)
+	rand.Read(b)
+	return hex.EncodeToString(b)
+}
+
+// ─────────────────────────────────────────────────────
+
 func GenerateToken(cfg *config.Config, userID uint, email, role string) (string, error) {
+	expiry := time.Now().Add(time.Duration(cfg.JWTExpHours) * time.Hour)
 	claims := &Claims{
 		UserID: userID,
 		Email:  email,
 		Role:   role,
+		JTI:    newJTI(),
 		RegisteredClaims: jwt.RegisteredClaims{
-			ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Duration(cfg.JWTExpHours) * time.Hour)),
+			ExpiresAt: jwt.NewNumericDate(expiry),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
 		},
 	}
@@ -59,9 +114,16 @@ func AuthRequired(cfg *config.Config) gin.HandlerFunc {
 			return
 		}
 
+		if isBlacklisted(claims.JTI) {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Token has been invalidated"})
+			return
+		}
+
 		c.Set("user_id", claims.UserID)
 		c.Set("email", claims.Email)
 		c.Set("role", claims.Role)
+		c.Set("jti", claims.JTI)
+		c.Set("token_expiry", claims.ExpiresAt.Time)
 		c.Next()
 	}
 }

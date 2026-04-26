@@ -198,14 +198,16 @@ interface FormFieldProps {
   required?: boolean
   children: ReactNode
   error?: string
+  hint?: string
 }
-export function FormField({ label, required, children, error }: FormFieldProps) {
+export function FormField({ label, required, children, error, hint }: FormFieldProps) {
   return (
     <div className="mb-3">
       <label className="label">
         {label} {required && <span className="text-red-500">*</span>}
       </label>
       {children}
+      {hint && <p className="text-xs text-blue-500 mt-1">{hint}</p>}
       {error && <p className="text-xs text-red-500 mt-1">{error}</p>}
     </div>
   )
