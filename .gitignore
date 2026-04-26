@@ -1,0 +1,24 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Environment
+.env
+*.env.local
+
+# Go
+Backend/api.exe
+Backend/tmp/
+Backend/bin/
+
+# Node / Frontend
+Frontend/node_modules/
+Frontend/dist/
+Frontend/.env.local
+
+# Vite cache
+Frontend/.vite/
+
+# Logs
+*.log
