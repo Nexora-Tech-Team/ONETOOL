@@ -33,7 +33,7 @@ func (s *Server) setupRoutes() {
 
 	// Health check
 	s.router.GET("/health", func(c *gin.Context) {
-		c.JSON(200, gin.H{"status": "ok", "version": "1.0.1"})
+		c.JSON(200, gin.H{"status": "ok", "version": "1.0.2"})
 	})
 
 	api := s.router.Group("/api/v1")
@@ -124,6 +124,7 @@ func (s *Server) setupRoutes() {
 			invoices.POST("", invoiceH.Create)
 			invoices.GET("/summary", invoiceH.Summary)
 			invoices.GET("/:id", invoiceH.Get)
+			invoices.GET("/:id/pdf", invoiceH.ExportPDF)
 			invoices.PUT("/:id", invoiceH.Update)
 			invoices.DELETE("/:id", invoiceH.Delete)
 			invoices.POST("/:id/payments", invoiceH.AddPayment)
@@ -248,7 +249,12 @@ func (s *Server) setupRoutes() {
 			reports.GET("/projects-summary", reportH.ProjectsSummary)
 			reports.GET("/leads-summary", reportH.LeadsSummary)
 			reports.GET("/expenses-summary", reportH.ExpensesSummary)
+			reports.GET("/export", reportH.ExportCSV)
 		}
+
+		// Audit Logs (admin only)
+		auditH := handlers.NewAuditLogHandler(s.db)
+		protected.GET("/audit-logs", middleware.AdminRequired(), auditH.List)
 
 		// Labels
 		labelH := handlers.NewLabelHandler(s.db)

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { reportService, invoiceService, paymentService, expenseService, teamService, taskService, projectService, clientService } from '@/services/api'
+import { FileDown } from 'lucide-react'
 import { toast } from 'react-toastify'
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
@@ -223,11 +224,24 @@ export default function ReportsPage() {
     <div className="p-5">
       <div className="flex items-center justify-between mb-4">
         <h1 className="page-title">Reports</h1>
-        {(view === 'sales' || view === 'finance') && (
-          <select className="input input-sm w-28" value={year} onChange={e => setYear(e.target.value)}>
-            {years.map(y => <option key={y} value={y}>{y}</option>)}
-          </select>
-        )}
+        <div className="flex items-center gap-2">
+          {(view === 'sales' || view === 'finance') && (
+            <select className="input input-sm w-28" value={year} onChange={e => setYear(e.target.value)}>
+              {years.map(y => <option key={y} value={y}>{y}</option>)}
+            </select>
+          )}
+          <button
+            className="btn btn-secondary text-xs flex items-center gap-1"
+            title="Export laporan ke CSV (bisa dibuka di Excel)"
+            onClick={() => {
+              const typeMap: Record<string, string> = { sales: 'invoices', finance: 'expenses', projects: 'projects', leads: 'leads', hr: 'timecards' }
+              reportService.exportCSV(typeMap[view] || 'invoices', year)
+            }}
+          >
+            <FileDown size={13} />
+            Export Excel
+          </button>
+        </div>
       </div>
 
       <ViewTabs

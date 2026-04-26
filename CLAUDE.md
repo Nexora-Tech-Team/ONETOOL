@@ -3,6 +3,8 @@
 ## Overview
 OneTool adalah aplikasi bisnis all-in-one yang mencakup manajemen klien, sales, proyek, keuangan, dan komunikasi. Dibangun untuk kebutuhan tim IT Audit.
 
+**Versi saat ini: v1.0.2**
+
 ## Tech Stack
 
 ### Frontend
@@ -48,10 +50,10 @@ root/
 │   │   │   ├── Notes/        # NotesPage
 │   │   │   ├── Events/       # EventsPage
 │   │   │   ├── Files/        # FilesPage
-│   │   │   ├── Reports/      # ReportsPage
+│   │   │   ├── Reports/      # ReportsPage (+ Export CSV)
 │   │   │   ├── Team/         # TeamMembersPage, TimeCardsPage,
 │   │   │   │                 # LeavePage, AnnouncementsPage, HelpPage
-│   │   │   └── Settings/     # UsersPage
+│   │   │   └── Settings/     # UsersPage, AuditLogPage
 │   │   ├── components/
 │   │   │   ├── layout/       # Layout.tsx
 │   │   │   └── common/       # ProtectedRoute, ManageLabelsModal, index
@@ -79,11 +81,11 @@ root/
 │       ├── config/config.go
 │       ├── database/database.go
 │       ├── middleware/auth.go  # AuthRequired, AdminRequired, CORS
-│       ├── models/models.go    # 21 entitas, semua pakai soft delete
+│       ├── models/models.go    # 22 entitas, semua pakai soft delete (+ AuditLog)
 │       ├── handlers/
 │       │   ├── auth.go
 │       │   └── handlers.go    # Semua handler bisnis di sini
-│       └── server/server.go   # Route setup (~60 endpoints)
+│       └── server/server.go   # Route setup (~65 endpoints)
 ├── docker-compose.yml
 ├── .gitignore
 └── README.md
@@ -103,8 +105,8 @@ root/
 - **Expenses**: Pencatatan pengeluaran per-user
 - **Notes**: Catatan per-user
 - **Team**: Members, Time Cards (clock in/out dengan duration), Leave Management, Announcements
-- **Reports**: Invoice summary, Projects summary, Leads funnel, Expenses total
-- **Settings**: Manajemen users
+- **Reports**: Invoice summary, Projects summary, Leads funnel, Expenses total, **Export CSV (Excel)**
+- **Settings**: Manajemen users, **Audit Trail**
 
 ## Business Logic Penting
 
@@ -127,6 +129,32 @@ Di frontend: tombol "→ Client" di setiap baris list dan kanban card.
 `GET /api/v1/dashboard` mengembalikan 22 field real-time:
 task breakdown, invoice per-status amounts, project counts, clocked_in_count, on_leave_today, dll.
 
+### Audit Trail (v1.0.2)
+`recordAudit()` helper di `handlers.go` dipanggil otomatis di setiap operasi Create/Update/Delete/Convert untuk entitas: **Client, Project, Task, Lead, Invoice, Contract**.
+- Model: `AuditLog` — menyimpan `user_id`, `action`, `entity_type`, `entity_id`, `entity_name`, `ip_address`, `created_at`
+- Endpoint: `GET /api/v1/audit-logs` (Admin only) — support filter `entity_type`, `action`, `from`, `to`, `user_id`
+- Frontend: halaman `Settings > Audit Trail` (`/settings/audit-log`)
+
+### Invoice PDF Export (v1.0.2)
+`GET /api/v1/invoices/:id/pdf` — menghasilkan HTML invoice yang di-style rapi.
+Browser membuka di tab baru dan auto-trigger `window.print()` → user simpan sebagai PDF.
+Tombol printer ikon ada di setiap baris tabel InvoicesPage.
+
+### Reports Export CSV (v1.0.2)
+`GET /api/v1/reports/export?type=invoices&year=2026` — generate CSV dengan UTF-8 BOM agar Excel baca karakter Indonesia dengan benar.
+Tipe yang tersedia: `invoices`, `expenses`, `leads`, `projects`, `timecards`.
+Tombol "Export Excel" ada di header halaman Reports, otomatis download sesuai tab aktif.
+
+## API Services di Frontend (`src/services/api.ts`)
+Setiap modul punya service object:
+- `authService`, `dashboardService`, `clientService`, `projectService`, `taskService`
+- `leadService`, `invoiceService`, `paymentService`, `contractService`, `itemService`
+- `orderService`, `eventService`, `noteService`, `expenseService`, `fileService`
+- `todoService`, `teamService`, `reportService`, `labelService`
+- `auditService` — `list(params)` → `GET /api/v1/audit-logs`
+- `invoicePDFService` — `openPDF(id)` → buka PDF di tab baru
+- `reportService.exportCSV(type, year)` — download CSV
+
 ## Coding Conventions
 
 ### Frontend (React/TypeScript)
@@ -148,7 +176,7 @@ task breakdown, invoice per-status amounts, project counts, clocked_in_count, on
 - Database logic di `internal/database`
 - Business logic di `internal/handlers`
 - Model/struct definisi di `internal/models`
-- Semua model menggunakan `gorm.DeletedAt` (soft delete)
+- Semua model menggunakan `gorm.DeletedAt` (soft delete) — **kecuali `AuditLog` yang tidak pakai soft delete** (log harus permanen)
 - Tanggal menggunakan tipe `FlexTime` (wrapper `time.Time` yang menerima RFC3339 dan `YYYY-MM-DD`)
 
 ## Hal yang JANGAN Dilakukan
@@ -158,6 +186,7 @@ task breakdown, invoice per-status amounts, project counts, clocked_in_count, on
 - Jangan hardcode config/credentials — gunakan `.env`
 - Jangan campur business logic dengan database logic
 - Jangan commit `Frontend/dist/`, `node_modules/`, `.env`, `Backend/api.exe`
+- Jangan hapus atau soft-delete record `AuditLog` — log harus immutable
 
 ## Environment
 - File `.env` ada di root repo (dibaca docker-compose) dan `Backend/.env` (untuk run manual)
@@ -204,7 +233,7 @@ go run cmd/seed/main.go
 ### Cek Health Backend
 ```bash
 curl http://localhost:8080/health
-# {"status":"ok","version":"1.0.0"}
+# {"status":"ok","version":"1.0.2"}
 ```
 
 ## Docker (Full Stack)
@@ -219,3 +248,18 @@ docker-compose --profile tools up  # jalankan + pgAdmin (localhost:5050)
 - Remote: https://github.com/Nexora-Tech-Team/ONETOOL
 - Branch utama: `main`
 - Struktur root: `Backend/`, `Frontend/`, `docker-compose.yml`
+
+## Changelog
+
+### v1.0.2 (2026-04-26)
+- Audit Trail: rekaman otomatis semua perubahan data (Client, Project, Task, Lead, Invoice, Contract)
+- Invoice PDF Export: generate & print invoice sebagai PDF langsung dari browser
+- Reports Export CSV: download laporan ke CSV/Excel untuk semua tab Reports
+- Fix deploy: port 8080 conflict saat redeploy di GitHub Actions
+
+### v1.0.1
+- Initial production release
+- Clean repo structure
+
+### v1.0.0
+- Init project

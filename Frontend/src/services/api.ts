@@ -204,6 +204,47 @@ export const reportService = {
   projectsSummary: () => api.get('/reports/projects-summary'),
   leadsSummary: () => api.get('/reports/leads-summary'),
   expensesSummary: () => api.get('/reports/expenses-summary'),
+  exportCSV: (type: string, year?: string) => {
+    const params = new URLSearchParams({ type })
+    if (year) params.append('year', year)
+    const token = localStorage.getItem('token') || sessionStorage.getItem('token') || ''
+    const baseURL = import.meta.env.VITE_API_URL || '/api/v1'
+    const a = document.createElement('a')
+    a.href = `${baseURL}/reports/export?${params.toString()}`
+    // inject token via query is not ideal; use window.fetch instead
+    return fetch(`${baseURL}/reports/export?${params.toString()}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    }).then(async (res) => {
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      a.href = url
+      a.download = `laporan_${type}_${new Date().toISOString().slice(0, 10)}.csv`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+    })
+  },
+}
+
+// ─── Audit Logs ──────────────────────────────────────
+export const auditService = {
+  list: (params?: any) => api.get('/audit-logs', { params }),
+}
+
+// ─── Invoice PDF ─────────────────────────────────────
+export const invoicePDFService = {
+  openPDF: (id: number) => {
+    const token = localStorage.getItem('token') || sessionStorage.getItem('token') || ''
+    const baseURL = import.meta.env.VITE_API_URL || '/api/v1'
+    fetch(`${baseURL}/invoices/${id}/pdf`, {
+      headers: { Authorization: `Bearer ${token}` },
+    }).then(async (res) => {
+      const html = await res.text()
+      const win = window.open('', '_blank')
+      if (win) { win.document.write(html); win.document.close() }
+    })
+  },
 }
 
 // ─── Labels ──────────────────────────────────────────

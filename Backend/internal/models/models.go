@@ -376,3 +376,16 @@ type Label struct {
 	Name  string `gorm:"not null" json:"name"`
 	Color string `gorm:"default:#3b82f6" json:"color"`
 }
+
+// ─── AUDIT LOG ───────────────────────────────────────
+type AuditLog struct {
+	ID         uint      `json:"id" gorm:"primaryKey;autoIncrement"`
+	UserID     uint      `json:"user_id"`
+	User       User      `json:"user" gorm:"foreignKey:UserID"`
+	Action     string    `json:"action"`      // create, update, delete
+	EntityType string    `json:"entity_type"` // client, invoice, project, task, lead, contract
+	EntityID   uint      `json:"entity_id"`
+	EntityName string    `json:"entity_name"`
+	IPAddress  string    `json:"ip_address"`
+	CreatedAt  time.Time `json:"created_at"`
+}

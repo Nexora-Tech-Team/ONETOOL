@@ -35,6 +35,7 @@ import ExpensesPage from '@/pages/Expenses/ExpensesPage'
 import ReportsPage from '@/pages/Reports/ReportsPage'
 import TodoPage from '@/pages/Todo/TodoPage'
 import UsersPage from '@/pages/Settings/UsersPage'
+import AuditLogPage from '@/pages/Settings/AuditLogPage'
 
 export default function App() {
   return (
@@ -71,6 +72,7 @@ export default function App() {
             <Route path="reports" element={<ReportsPage />} />
             <Route path="todo" element={<TodoPage />} />
             <Route path="settings/users" element={<UsersPage />} />
+            <Route path="settings/audit-log" element={<AuditLogPage />} />
           </Route>
           <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Routes>

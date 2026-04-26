@@ -61,5 +61,6 @@ func Migrate(db *gorm.DB) error {
 		&models.File{},
 		&models.Todo{},
 		&models.Label{},
+		&models.AuditLog{},
 	)
 }

@@ -48,6 +48,7 @@ const navItems = [
   {
     label: 'Settings', icon: Settings, children: [
       { to: '/settings/users', label: 'User Accounts' },
+      { to: '/settings/audit-log', label: 'Audit Trail' },
     ]
   },
 ]
@@ -127,7 +128,7 @@ export default function Layout() {
         {/* User at bottom */}
         <div className="p-3" style={{ borderTop: '1px solid rgba(255,255,255,0.1)' }}>
           <div className="px-2 pb-2 text-[10px]" style={{ color: 'rgba(255,255,255,0.3)' }}>
-            v1.0.1
+            v1.0.2
           </div>
           <button
             onClick={handleLogout}

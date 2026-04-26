@@ -1,8 +1,12 @@
 package handlers
 
 import (
+	"encoding/csv"
+	"fmt"
+	"html/template"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/cbqa/backend/internal/models"
@@ -12,6 +16,17 @@ import (
 )
 
 // ─── HELPERS ─────────────────────────────────────────
+
+func recordAudit(db *gorm.DB, c *gin.Context, action, entityType string, entityID uint, entityName string) {
+	db.Create(&models.AuditLog{
+		UserID:     getUserID(c),
+		Action:     action,
+		EntityType: entityType,
+		EntityID:   entityID,
+		EntityName: entityName,
+		IPAddress:  c.ClientIP(),
+	})
+}
 
 func getID(c *gin.Context) (uint, error) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
@@ -131,6 +146,7 @@ func (h *ClientHandler) Create(c *gin.Context) {
 	if err := h.db.Create(&client).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()}); return
 	}
+	recordAudit(h.db, c, "create", "client", client.ID, client.Name)
 	c.JSON(http.StatusCreated, client)
 }
 
@@ -153,12 +169,16 @@ func (h *ClientHandler) Update(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()}); return
 	}
 	h.db.Save(&client)
+	recordAudit(h.db, c, "update", "client", client.ID, client.Name)
 	c.JSON(http.StatusOK, client)
 }
 
 func (h *ClientHandler) Delete(c *gin.Context) {
 	id, _ := getID(c)
+	var client models.Client
+	h.db.First(&client, id)
 	h.db.Delete(&models.Client{}, id)
+	recordAudit(h.db, c, "delete", "client", id, client.Name)
 	c.JSON(http.StatusOK, gin.H{"message": "Deleted"})
 }
 
@@ -240,6 +260,7 @@ func (h *ProjectHandler) Create(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()}); return
 	}
 	h.db.Create(&project)
+	recordAudit(h.db, c, "create", "project", project.ID, project.Title)
 	c.JSON(http.StatusCreated, project)
 }
 
@@ -260,12 +281,16 @@ func (h *ProjectHandler) Update(c *gin.Context) {
 	}
 	c.ShouldBindJSON(&project)
 	h.db.Save(&project)
+	recordAudit(h.db, c, "update", "project", project.ID, project.Title)
 	c.JSON(http.StatusOK, project)
 }
 
 func (h *ProjectHandler) Delete(c *gin.Context) {
 	id, _ := getID(c)
+	var project models.Project
+	h.db.First(&project, id)
 	h.db.Delete(&models.Project{}, id)
+	recordAudit(h.db, c, "delete", "project", id, project.Title)
 	c.JSON(http.StatusOK, gin.H{"message": "Deleted"})
 }
 
@@ -315,6 +340,7 @@ func (h *TaskHandler) Create(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()}); return
 	}
 	h.db.Create(&task)
+	recordAudit(h.db, c, "create", "task", task.ID, task.Title)
 	c.JSON(http.StatusCreated, task)
 }
 
@@ -335,6 +361,7 @@ func (h *TaskHandler) Update(c *gin.Context) {
 	}
 	c.ShouldBindJSON(&task)
 	h.db.Save(&task)
+	recordAudit(h.db, c, "update", "task", task.ID, task.Title)
 	c.JSON(http.StatusOK, task)
 }
 
@@ -348,7 +375,10 @@ func (h *TaskHandler) UpdateStatus(c *gin.Context) {
 
 func (h *TaskHandler) Delete(c *gin.Context) {
 	id, _ := getID(c)
+	var task models.Task
+	h.db.First(&task, id)
 	h.db.Delete(&models.Task{}, id)
+	recordAudit(h.db, c, "delete", "task", id, task.Title)
 	c.JSON(http.StatusOK, gin.H{"message": "Deleted"})
 }
 
@@ -382,6 +412,7 @@ func (h *LeadHandler) Create(c *gin.Context) {
 	}
 	lead.OwnerID = getUserID(c)
 	h.db.Create(&lead)
+	recordAudit(h.db, c, "create", "lead", lead.ID, lead.Name)
 	c.JSON(http.StatusCreated, lead)
 }
 
@@ -402,6 +433,7 @@ func (h *LeadHandler) Update(c *gin.Context) {
 	}
 	c.ShouldBindJSON(&lead)
 	h.db.Save(&lead)
+	recordAudit(h.db, c, "update", "lead", lead.ID, lead.Name)
 	c.JSON(http.StatusOK, lead)
 }
 
@@ -415,7 +447,10 @@ func (h *LeadHandler) UpdateStatus(c *gin.Context) {
 
 func (h *LeadHandler) Delete(c *gin.Context) {
 	id, _ := getID(c)
+	var lead models.Lead
+	h.db.First(&lead, id)
 	h.db.Delete(&models.Lead{}, id)
+	recordAudit(h.db, c, "delete", "lead", id, lead.Name)
 	c.JSON(http.StatusOK, gin.H{"message": "Deleted"})
 }
 
@@ -435,6 +470,7 @@ func (h *LeadHandler) ConvertToClient(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()}); return
 	}
 	h.db.Model(&lead).Update("status", "won")
+	recordAudit(h.db, c, "convert", "lead", lead.ID, lead.Name+" → Client")
 	c.JSON(http.StatusCreated, client)
 }
 
@@ -464,6 +500,7 @@ func (h *InvoiceHandler) Create(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()}); return
 	}
 	h.db.Create(&invoice)
+	recordAudit(h.db, c, "create", "invoice", invoice.ID, invoice.InvoiceNumber)
 	c.JSON(http.StatusCreated, invoice)
 }
 
@@ -484,14 +521,168 @@ func (h *InvoiceHandler) Update(c *gin.Context) {
 	}
 	c.ShouldBindJSON(&invoice)
 	h.db.Save(&invoice)
+	recordAudit(h.db, c, "update", "invoice", invoice.ID, invoice.InvoiceNumber)
 	c.JSON(http.StatusOK, invoice)
 }
 
 func (h *InvoiceHandler) Delete(c *gin.Context) {
 	id, _ := getID(c)
+	var invoice models.Invoice
+	h.db.First(&invoice, id)
 	h.db.Delete(&models.Invoice{}, id)
+	recordAudit(h.db, c, "delete", "invoice", id, invoice.InvoiceNumber)
 	c.JSON(http.StatusOK, gin.H{"message": "Deleted"})
 }
+
+func (h *InvoiceHandler) ExportPDF(c *gin.Context) {
+	id, _ := getID(c)
+	var invoice models.Invoice
+	if err := h.db.Preload("Client").Preload("Project").Preload("Items").Preload("Payments").First(&invoice, id).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Not found"}); return
+	}
+
+	tmpl := template.Must(template.New("invoice").Funcs(template.FuncMap{
+		"formatCurrency": func(amount float64, currency string) string {
+			return fmt.Sprintf("%s %.2f", currency, amount)
+		},
+		"formatDate": func(t models.FlexTime) string {
+			if t.IsZero() { return "-" }
+			return t.Format("02 January 2006")
+		},
+	}).Parse(invoicePDFTemplate))
+
+	c.Header("Content-Type", "text/html; charset=utf-8")
+	tmpl.Execute(c.Writer, invoice)
+}
+
+const invoicePDFTemplate = `<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<title>Invoice {{.InvoiceNumber}}</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'Segoe UI', Arial, sans-serif; font-size: 13px; color: #1a1a1a; background: #fff; padding: 40px; }
+  .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 40px; border-bottom: 3px solid #2563eb; padding-bottom: 24px; }
+  .company { font-size: 24px; font-weight: 700; color: #2563eb; }
+  .invoice-title { text-align: right; }
+  .invoice-title h1 { font-size: 32px; font-weight: 800; color: #2563eb; letter-spacing: 2px; }
+  .invoice-title p { color: #64748b; margin-top: 4px; }
+  .meta { display: grid; grid-template-columns: 1fr 1fr; gap: 32px; margin-bottom: 32px; }
+  .meta-box h3 { font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: #64748b; margin-bottom: 8px; }
+  .meta-box p { font-size: 13px; line-height: 1.6; }
+  .status { display: inline-block; padding: 3px 10px; border-radius: 12px; font-size: 11px; font-weight: 600; text-transform: uppercase; }
+  .status-draft { background: #f1f5f9; color: #64748b; }
+  .status-not_paid { background: #fef3c7; color: #92400e; }
+  .status-partially_paid { background: #dbeafe; color: #1e40af; }
+  .status-fully_paid { background: #dcfce7; color: #166534; }
+  .status-overdue { background: #fee2e2; color: #991b1b; }
+  table { width: 100%; border-collapse: collapse; margin-bottom: 24px; }
+  thead th { background: #2563eb; color: #fff; padding: 10px 12px; text-align: left; font-size: 12px; }
+  thead th:last-child { text-align: right; }
+  tbody td { padding: 10px 12px; border-bottom: 1px solid #e2e8f0; }
+  tbody td:last-child { text-align: right; }
+  tbody tr:nth-child(even) { background: #f8fafc; }
+  .totals { display: flex; justify-content: flex-end; margin-bottom: 32px; }
+  .totals table { width: 300px; }
+  .totals td { padding: 6px 12px; }
+  .totals .label { color: #64748b; }
+  .totals .total-row td { font-weight: 700; font-size: 15px; border-top: 2px solid #2563eb; padding-top: 10px; color: #2563eb; }
+  .payments h3 { font-size: 13px; font-weight: 600; margin-bottom: 10px; color: #374151; }
+  .footer { margin-top: 40px; padding-top: 16px; border-top: 1px solid #e2e8f0; text-align: center; color: #94a3b8; font-size: 11px; }
+  @media print {
+    body { padding: 20px; }
+    .no-print { display: none; }
+  }
+</style>
+</head>
+<body>
+<div class="header">
+  <div class="company">CBQA / OneTool</div>
+  <div class="invoice-title">
+    <h1>INVOICE</h1>
+    <p>{{.InvoiceNumber}}</p>
+    <p style="margin-top:8px"><span class="status status-{{.Status}}">{{.Status}}</span></p>
+  </div>
+</div>
+
+<div class="meta">
+  <div class="meta-box">
+    <h3>Tagihan Kepada</h3>
+    {{if .Client}}
+    <p style="font-weight:600;font-size:15px">{{.Client.Name}}</p>
+    <p>{{.Client.Email}}</p>
+    <p>{{.Client.Phone}}</p>
+    <p>{{.Client.Address}}</p>
+    {{end}}
+  </div>
+  <div class="meta-box" style="text-align:right">
+    <h3>Detail Invoice</h3>
+    <p>Tanggal: <strong>{{formatDate .BillDate}}</strong></p>
+    <p>Jatuh Tempo: <strong>{{formatDate .DueDate}}</strong></p>
+    {{if .Project}}<p>Proyek: <strong>{{.Project.Title}}</strong></p>{{end}}
+  </div>
+</div>
+
+<table>
+  <thead>
+    <tr>
+      <th style="width:50%">Deskripsi</th>
+      <th style="width:15%;text-align:right">Qty</th>
+      <th style="width:20%;text-align:right">Harga Satuan</th>
+      <th style="width:15%">Total</th>
+    </tr>
+  </thead>
+  <tbody>
+    {{range .Items}}
+    <tr>
+      <td>{{.Description}}</td>
+      <td style="text-align:right">{{.Quantity}}</td>
+      <td style="text-align:right">{{formatCurrency .UnitPrice $.Currency}}</td>
+      <td>{{formatCurrency .Total $.Currency}}</td>
+    </tr>
+    {{end}}
+  </tbody>
+</table>
+
+<div class="totals">
+  <table>
+    <tr><td class="label">Subtotal</td><td style="text-align:right">{{formatCurrency .TotalAmount .Currency}}</td></tr>
+    {{if .TaxAmount}}<tr><td class="label">Pajak</td><td style="text-align:right">{{formatCurrency .TaxAmount .Currency}}</td></tr>{{end}}
+    {{if .DiscountAmount}}<tr><td class="label">Diskon</td><td style="text-align:right">-{{formatCurrency .DiscountAmount .Currency}}</td></tr>{{end}}
+    <tr class="total-row"><td>Total</td><td style="text-align:right">{{formatCurrency .TotalAmount .Currency}}</td></tr>
+    <tr><td class="label">Dibayar</td><td style="text-align:right">{{formatCurrency .PaidAmount .Currency}}</td></tr>
+    <tr><td class="label" style="font-weight:600">Sisa Tagihan</td><td style="text-align:right;font-weight:600;color:#dc2626">{{formatCurrency .DueAmount .Currency}}</td></tr>
+  </table>
+</div>
+
+{{if .Payments}}
+<div class="payments">
+  <h3>Riwayat Pembayaran</h3>
+  <table>
+    <thead><tr><th>Tanggal</th><th>Metode</th><th>Catatan</th><th>Jumlah</th></tr></thead>
+    <tbody>
+      {{range .Payments}}
+      <tr>
+        <td>{{formatDate .PaymentDate}}</td>
+        <td>{{.PaymentMethod}}</td>
+        <td>{{.Note}}</td>
+        <td>{{formatCurrency .Amount $.Currency}}</td>
+      </tr>
+      {{end}}
+    </tbody>
+  </table>
+</div>
+{{end}}
+
+{{if .Notes}}<div style="margin-top:24px;padding:16px;background:#f8fafc;border-radius:8px;"><strong>Catatan:</strong> {{.Notes}}</div>{{end}}
+
+<div class="footer">
+  <p>Dokumen ini digenerate otomatis oleh OneTool &bull; Dicetak pada: ` + "`" + `{{.InvoiceNumber}}` + "`" + `</p>
+</div>
+<script>window.onload=function(){window.print()}</script>
+</body>
+</html>`
 
 func (h *InvoiceHandler) AddPayment(c *gin.Context) {
 	id, _ := getID(c)
@@ -636,6 +827,7 @@ func (h *ContractHandler) Create(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()}); return
 	}
 	h.db.Create(&contract)
+	recordAudit(h.db, c, "create", "contract", contract.ID, contract.Title)
 	c.JSON(http.StatusCreated, contract)
 }
 
@@ -654,12 +846,16 @@ func (h *ContractHandler) Update(c *gin.Context) {
 	h.db.First(&contract, id)
 	c.ShouldBindJSON(&contract)
 	h.db.Save(&contract)
+	recordAudit(h.db, c, "update", "contract", contract.ID, contract.Title)
 	c.JSON(http.StatusOK, contract)
 }
 
 func (h *ContractHandler) Delete(c *gin.Context) {
 	id, _ := getID(c)
+	var contract models.Contract
+	h.db.First(&contract, id)
 	h.db.Delete(&models.Contract{}, id)
+	recordAudit(h.db, c, "delete", "contract", id, contract.Title)
 	c.JSON(http.StatusOK, gin.H{"message": "Deleted"})
 }
 
@@ -1189,4 +1385,133 @@ func (h *LabelHandler) Delete(c *gin.Context) {
 	id, _ := getID(c)
 	h.db.Delete(&models.Label{}, id)
 	c.JSON(http.StatusOK, gin.H{"message": "Deleted"})
+}
+
+// ─── AUDIT LOG ───────────────────────────────────────
+
+type AuditLogHandler struct{ db *gorm.DB }
+
+func NewAuditLogHandler(db *gorm.DB) *AuditLogHandler { return &AuditLogHandler{db: db} }
+
+func (h *AuditLogHandler) List(c *gin.Context) {
+	var logs []models.AuditLog
+	var total int64
+	query := h.db.Model(&models.AuditLog{}).Preload("User")
+
+	if entityType := c.Query("entity_type"); entityType != "" {
+		query = query.Where("entity_type = ?", entityType)
+	}
+	if userID := c.Query("user_id"); userID != "" {
+		query = query.Where("user_id = ?", userID)
+	}
+	if action := c.Query("action"); action != "" {
+		query = query.Where("action = ?", action)
+	}
+	if from := c.Query("from"); from != "" {
+		query = query.Where("created_at >= ?", from)
+	}
+	if to := c.Query("to"); to != "" {
+		query = query.Where("created_at <= ?", to+" 23:59:59")
+	}
+
+	query.Count(&total)
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "50"))
+	offset := (page - 1) * limit
+	query.Order("created_at desc").Offset(offset).Limit(limit).Find(&logs)
+	c.JSON(http.StatusOK, gin.H{"data": logs, "total": total, "page": page, "limit": limit})
+}
+
+// ─── REPORT EXPORT ───────────────────────────────────
+
+func (h *ReportHandler) ExportCSV(c *gin.Context) {
+	reportType := c.DefaultQuery("type", "invoices")
+	year := c.Query("year")
+
+	filename := fmt.Sprintf("laporan_%s_%s.csv", reportType, time.Now().Format("2006-01-02"))
+	c.Header("Content-Type", "text/csv; charset=utf-8")
+	c.Header("Content-Disposition", "attachment; filename="+filename)
+	c.Writer.Write([]byte("\xEF\xBB\xBF")) // UTF-8 BOM agar Excel baca karakter benar
+
+	w := csv.NewWriter(c.Writer)
+	defer w.Flush()
+
+	switch reportType {
+	case "invoices":
+		type row struct {
+			ClientName      string
+			Count           int
+			InvoiceTotal    float64
+			TaxAmount       float64
+			PaymentReceived float64
+			Due             float64
+		}
+		var data []row
+		q := h.db.Table("invoices i").
+			Select("c.name as client_name, COUNT(i.id) as count, SUM(i.total_amount) as invoice_total, SUM(i.tax_amount) as tax_amount, SUM(i.paid_amount) as payment_received, SUM(i.due_amount) as due").
+			Joins("JOIN clients c ON c.id = i.client_id").
+			Where("i.deleted_at IS NULL")
+		if year != "" {
+			q = q.Where("EXTRACT(YEAR FROM i.bill_date) = ?", year)
+		}
+		q.Group("c.name").Order("invoice_total desc").Scan(&data)
+		w.Write([]string{"Klien", "Jumlah Invoice", "Total Invoice", "Pajak", "Dibayar", "Sisa Tagihan"})
+		for _, r := range data {
+			w.Write([]string{r.ClientName, strconv.Itoa(r.Count), fmt.Sprintf("%.2f", r.InvoiceTotal), fmt.Sprintf("%.2f", r.TaxAmount), fmt.Sprintf("%.2f", r.PaymentReceived), fmt.Sprintf("%.2f", r.Due)})
+		}
+
+	case "expenses":
+		var expenses []models.Expense
+		q := h.db.Preload("User")
+		if year != "" {
+			q = q.Where("EXTRACT(YEAR FROM date) = ?", year)
+		}
+		q.Order("date desc").Find(&expenses)
+		w.Write([]string{"Tanggal", "Kategori", "Judul", "Jumlah", "Pajak", "Total", "User"})
+		for _, e := range expenses {
+			userName := ""
+			if e.User != nil { userName = e.User.Name }
+			w.Write([]string{e.Date.Format("2006-01-02"), e.Category, e.Title, fmt.Sprintf("%.2f", e.Amount), fmt.Sprintf("%.2f", e.Tax), fmt.Sprintf("%.2f", e.Total), userName})
+		}
+
+	case "leads":
+		var leads []models.Lead
+		h.db.Preload("Owner").Find(&leads)
+		w.Write([]string{"Nama", "Kontak", "Email", "Status", "Sumber", "Owner", "Tanggal Dibuat"})
+		for _, l := range leads {
+			ownerName := ""
+			if l.Owner != nil { ownerName = l.Owner.Name }
+			w.Write([]string{l.Name, l.PrimaryContact, l.Email, l.Status, l.Source, ownerName, l.CreatedAt.Format("2006-01-02")})
+		}
+
+	case "projects":
+		var projects []models.Project
+		h.db.Preload("Client").Find(&projects)
+		w.Write([]string{"Proyek", "Klien", "Status", "Progress", "Mulai", "Deadline", "Nilai"})
+		for _, p := range projects {
+			clientName := ""
+			if p.Client != nil { clientName = p.Client.Name }
+			w.Write([]string{p.Title, clientName, p.Status, strconv.Itoa(p.Progress) + "%", p.StartDate.Format("2006-01-02"), p.Deadline.Format("2006-01-02"), fmt.Sprintf("%.2f", p.Price)})
+		}
+
+	case "timecards":
+		var cards []models.TimeCard
+		q := h.db.Preload("User")
+		if year != "" {
+			q = q.Where("EXTRACT(YEAR FROM in_date) = ?", year)
+		}
+		q.Order("in_date desc").Find(&cards)
+		w.Write([]string{"Nama", "Tanggal", "Jam Masuk", "Jam Keluar", "Durasi (jam)"})
+		for _, tc := range cards {
+			userName := ""
+			if tc.User != nil { userName = tc.User.Name }
+			outTime := "-"
+			if tc.OutTime != nil { outTime = tc.OutTime.Format("15:04") }
+			w.Write([]string{userName, tc.InDate.Format("2006-01-02"), tc.InTime.Format("15:04"), outTime, fmt.Sprintf("%.2f", tc.Duration)})
+		}
+
+	default:
+		w.Write([]string{"error", "tipe laporan tidak dikenal: " + reportType})
+		w.Write([]string{"tersedia", strings.Join([]string{"invoices", "expenses", "leads", "projects", "timecards"}, ", ")})
+	}
 }

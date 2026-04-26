@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { invoiceService, clientService, projectService } from '@/services/api'
+import { invoiceService, clientService, projectService, invoicePDFService } from '@/services/api'
 import { toISODate } from '@/utils/format'
 import { ManageLabelsModal } from '@/components/common/ManageLabelsModal'
 import { toast } from 'react-toastify'
@@ -149,7 +149,16 @@ export default function InvoicesPage() {
                       <td className="whitespace-nowrap text-red-500">{fmt(inv.due_amount, inv.currency)}</td>
                       <td><StatusBadge status={inv.status} /></td>
                       <td>
-                        <button className="btn btn-danger text-xs py-0.5 px-2" onClick={() => setDeleteId(inv.id)}>×</button>
+                        <div className="flex gap-1">
+                          <button
+                            title="Export PDF"
+                            className="btn btn-secondary text-xs py-0.5 px-2"
+                            onClick={() => invoicePDFService.openPDF(inv.id)}
+                          >
+                            <Printer size={12} />
+                          </button>
+                          <button className="btn btn-danger text-xs py-0.5 px-2" onClick={() => setDeleteId(inv.id)}>×</button>
+                        </div>
                       </td>
                     </tr>
                   ))
