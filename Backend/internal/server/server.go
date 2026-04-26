@@ -33,7 +33,7 @@ func (s *Server) setupRoutes() {
 
 	// Health check
 	s.router.GET("/health", func(c *gin.Context) {
-		c.JSON(200, gin.H{"status": "ok", "version": "1.0.0"})
+		c.JSON(200, gin.H{"status": "ok", "version": "1.0.1"})
 	})
 
 	api := s.router.Group("/api/v1")
